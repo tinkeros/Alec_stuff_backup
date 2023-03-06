@@ -14,6 +14,7 @@ I64 @display_init(I64 width, I64 height, I64 bpp, I64 driver) {
     if (err)
       return err;
     Display.fb = VMSVGA.FrameBuffer();
+    Display.Update = &@vmsvga_display_update;
     break;
   default:
     //"Unsupported display driver\n";

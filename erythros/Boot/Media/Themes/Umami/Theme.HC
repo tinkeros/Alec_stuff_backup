@@ -29,21 +29,26 @@ Context2D *umami_widget_horz_slider =
 Context2D *umami_widget_vert_slider =
     @png_file_to_context2d("T:/Media/Themes/Umami/Widget/vert_slider.png");
 
-U0 @umami_render_truetype_text(TrueTypeTextLabelWidget *widget) {
-  Context2D *render = @truetype_TextRect2D(
-      widget->width, @truetype_point_to_size(widget->size), 2, truetype_fonts,
-      widget->font, widget->text, widget->color, widget->bgcolor);
-  Context2D *free_ctx = NULL;
-  if (widget->backing_store)
-    free_ctx = widget->backing_store;
-  widget->backing_store = render;
-  // if (free_ctx)
-  // DelContext2D(free_ctx);
-}
+Context2D *umami_widget_sb_up_button =
+    @png_file_to_context2d("T:/Media/Themes/Umami/Widget/sb_up_button.png");
+Context2D *umami_widget_sb_down_button =
+    @png_file_to_context2d("T:/Media/Themes/Umami/Widget/sb_down_button.png");
+Context2D *umami_widget_sb_left_button =
+    @png_file_to_context2d("T:/Media/Themes/Umami/Widget/sb_left_button.png");
+Context2D *umami_widget_sb_right_button =
+    @png_file_to_context2d("T:/Media/Themes/Umami/Widget/sb_right_button.png");
 
 U0 @umami_button_repaint(Window *win, ButtonWidget *widget, I64 x, I64 y) {
   I64 text_offset;
   I64 text_width;
+  if (!widget->color)
+    widget->color = Color(0, 0, 0);
+  if (!widget->font)
+    widget->font = Compositor.theme.font.sans;
+  if (widget->image) {
+    widget->width = Max(widget->image->width + 8, widget->width);
+    widget->height = Max(widget->image->height + 8, widget->height);
+  }
   Rect2D(win->render_ctx, x + 1, y + 1, widget->width - 2, widget->height - 2,
          Color(232, 232, 232));
   Line2D(win->render_ctx, x + 1, y, x + widget->width - 1, y,
@@ -56,6 +61,11 @@ U0 @umami_button_repaint(Window *win, ButtonWidget *widget, I64 x, I64 y) {
          y + widget->height - 2, Color(96, 96, 96));
   if (widget == win->mouse_down_widget && Mouse.left &&
       @widget_is_hovered(win->x + x, win->y + y, widget)) {
+
+    if (widget->image) {
+      Blot2D(win->render_ctx, x + 5, y + 5, widget->image);
+    }
+
     Line2D(win->render_ctx, x + 1, y + 1, x + widget->width - 2, y + 1,
            Color(152, 152, 152));
     Line2D(win->render_ctx, x + 1, y + 1, x + 1, y + widget->height - 3,
@@ -73,6 +83,11 @@ U0 @umami_button_repaint(Window *win, ButtonWidget *widget, I64 x, I64 y) {
     Line2D(win->render_ctx, x + widget->width - 4, y + 3, x + widget->width - 4,
            y + widget->height - 3, Color(255, 255, 255));
   } else {
+
+    if (widget->image) {
+      Blot2D(win->render_ctx, x + 4, y + 4, widget->image);
+    }
+
     Line2D(win->render_ctx, x + 2, y + 2, x + widget->width - 2, y + 2,
            Color(255, 255, 255));
     Line2D(win->render_ctx, x + 2, y + 3, x + widget->width - 3, y + 3,
@@ -94,13 +109,13 @@ U0 @umami_button_repaint(Window *win, ButtonWidget *widget, I64 x, I64 y) {
     text_offset = T(widget == win->mouse_down_widget && Mouse.left &&
                         @widget_is_hovered(win->x + x, win->y + y, widget),
                     1, 0);
-    text_width = PutS2D(NULL, Compositor.theme.font.sans, 0, 0, Color(0, 0, 0),
-                        , &widget->text);
-    PutS2D(win->render_ctx, Compositor.theme.font.sans,
+    text_width =
+        PutS2D(NULL, widget->font, 0, 0, Color(0, 0, 0), , &widget->text);
+    PutS2D(win->render_ctx, widget->font,
            x + text_offset + (widget->width / 2) - (text_width / 2),
            y + text_offset + (widget->height / 2) -
-               (Compositor.theme.font.sans->line_height / 2),
-           Color(0, 0, 0), , &widget->text);
+               (widget->font->line_height / 2),
+           widget->color, , &widget->text);
   }
 }
 
@@ -128,7 +143,7 @@ U0 @umami_checkbox_repaint(Window *win, CheckBoxWidget *widget, I64 x, I64 y) {
 
 U0 @umami_terminal_calculate_size(Window *win, TerminalWidget *widget) {
   widget->size.cols = RoundI64(win->width, 8) / 8;
-  widget->size.rows = RoundI64(win->width, 16) / 16; // FIXME
+  widget->size.rows = (RoundI64(win->height, 16) / 16) - 2;
 }
 
 U32 @umami_terminal_256_color_lookup(I64 index) {
@@ -247,9 +262,11 @@ U0 @umami_terminal_ctrl_seq_sgr(Window *win, TerminalWidget *widget) {
 
 U0 @umami_terminal_set_col(Window *win, TerminalWidget *widget, I64 row,
                            I64 col, U8 char) {
-  widget->row[row].col[col].foreground = widget->color.foreground;
-  widget->row[row].col[col].background = widget->color.background;
-  widget->row[row].col[col].char = char;
+  widget->row[row + widget->scroll.y].col[col + widget->scroll.x].foreground =
+      widget->color.foreground;
+  widget->row[row + widget->scroll.y].col[col + widget->scroll.x].background =
+      widget->color.background;
+  widget->row[row + widget->scroll.y].col[col + widget->scroll.x].char = char;
 }
 
 U0 @umami_terminal_set_row(Window *win, TerminalWidget *widget, I64 row,
@@ -270,13 +287,20 @@ U0 @umami_terminal_repaint_col(Window *win, TerminalWidget *widget, I64 row,
   U8 char[2];
   char[1] = NULL;
   U32 col_bg_color;
-  char[0] = widget->row[row].col[col].char;
-  col_bg_color = widget->row[row].col[col].background;
+  char[0] =
+      widget->row[row + widget->scroll.y].col[col + widget->scroll.x].char;
+  col_bg_color = widget->row[row + widget->scroll.y]
+                     .col[col + widget->scroll.x]
+                     .background;
   col_bg_color.u8[3] = win->opacity;
   Rect2D(widget->backing_store, 2 + (col * 8), 2 + (row * 16), 8, 16,
          col_bg_color);
   PutS2D(widget->backing_store, Compositor.theme.font.monospace, 2 + (col * 8),
-         2 + (row * 16), widget->row[row].col[col].foreground, , &char);
+         2 + (row * 16),
+         widget->row[row + widget->scroll.y]
+             .col[col + widget->scroll.x]
+             .foreground,
+         , &char);
 }
 
 U0 @umami_terminal_repaint_row(Window *win, TerminalWidget *widget, I64 row) {
@@ -294,6 +318,7 @@ U0 @umami_terminal_repaint_rows(Window *win, TerminalWidget *widget) {
 U0 @umami_terminal_ctrl_seq_cursor_move(Window *win, TerminalWidget *widget,
                                         I64 dir) {
   I64 pos = Str2I64(&widget->consumed_chars);
+  I64 prev_row = widget->cursor.y;
   switch (dir) {
   case 'A':
     widget->cursor.y = Max(0, widget->cursor.y - pos);
@@ -308,6 +333,7 @@ U0 @umami_terminal_ctrl_seq_cursor_move(Window *win, TerminalWidget *widget,
     widget->cursor.x = Max(0, widget->cursor.x - pos);
     break;
   };
+  @umami_terminal_repaint_row(win, widget, prev_row);
 }
 
 U0 @umami_terminal_ctrl_seq_cursor_pos(Window *win, TerminalWidget *widget) {
@@ -337,6 +363,7 @@ U0 @umami_terminal_ctrl_seq_cursor_pos(Window *win, TerminalWidget *widget) {
 }
 
 U0 @umami_terminal_ctrl_seq_erase_screen(Window *win, TerminalWidget *widget) {
+  I64 i;
   if (!StrLen(&widget->consumed_chars)) {
     // TODO: clear from cursor to end of the screen
     return;
@@ -350,7 +377,12 @@ U0 @umami_terminal_ctrl_seq_erase_screen(Window *win, TerminalWidget *widget) {
     // TODO: clear from cursor to beginning of the screen
     break;
   case 2:
-    @umami_terminal_set_rows(win, widget, ' ');
+    widget->scroll.x = 0;
+    widget->scroll.y = 0;
+    widget->max.x = 0;
+    widget->max.y = 0;
+    for (i = 0; i < 2000; i++)
+      @umami_terminal_set_row(win, widget, i, NULL);
     @umami_terminal_repaint_rows(win, widget);
     break;
   default:
@@ -574,6 +606,12 @@ U0 @umami_terminal_consume_char(Window *win, TerminalWidget *widget) {
 }
 
 U0 @umami_terminal_output_char(Window *win, TerminalWidget *widget) {
+  if (widget->scroll.y != widget->max.y) {
+    widget->scroll.y = widget->max.y;
+    @umami_terminal_repaint_rows(win, widget);
+  } else {
+    widget->scroll.y = widget->max.y;
+  }
   U8 char[2];
   char[1] = NULL;
   FifoU8Rem(widget->input, &char);
@@ -587,7 +625,9 @@ U0 @umami_terminal_output_char(Window *win, TerminalWidget *widget) {
     Audio.Beep();
     break;
   case 8:
-    widget->row[widget->cursor.y].col[widget->cursor.x].char = ' ';
+    widget->row[widget->cursor.y + widget->scroll.y]
+        .col[widget->cursor.x + widget->scroll.x]
+        .char = ' ';
     widget->cursor.x--;
     if (widget->cursor.x < 0) {
       widget->cursor.y--;
@@ -602,19 +642,27 @@ U0 @umami_terminal_output_char(Window *win, TerminalWidget *widget) {
     widget->cursor.x = 0;
     break;
   case 32...127:
-    widget->row[widget->cursor.y].col[widget->cursor.x].foreground =
-        widget->color.foreground;
-    widget->row[widget->cursor.y].col[widget->cursor.x].background =
-        widget->color.background;
-    widget->row[widget->cursor.y].col[widget->cursor.x].char = char[0];
+    widget->row[widget->cursor.y + widget->scroll.y]
+        .col[widget->cursor.x + widget->scroll.x]
+        .foreground = widget->color.foreground;
+    widget->row[widget->cursor.y + widget->scroll.y]
+        .col[widget->cursor.x + widget->scroll.x]
+        .background = widget->color.background;
+    widget->row[widget->cursor.y + widget->scroll.y]
+        .col[widget->cursor.x + widget->scroll.x]
+        .char = char[0];
     widget->cursor.x++;
     break;
   default:
-    widget->row[widget->cursor.y].col[widget->cursor.x].foreground =
-        widget->color.foreground;
-    widget->row[widget->cursor.y].col[widget->cursor.x].background =
-        widget->color.background;
-    widget->row[widget->cursor.y].col[widget->cursor.x].char = '?';
+    widget->row[widget->cursor.y + widget->scroll.y]
+        .col[widget->cursor.x + widget->scroll.x]
+        .foreground = widget->color.foreground;
+    widget->row[widget->cursor.y + widget->scroll.y]
+        .col[widget->cursor.x + widget->scroll.x]
+        .background = widget->color.background;
+    widget->row[widget->cursor.y + widget->scroll.y]
+        .col[widget->cursor.x + widget->scroll.x]
+        .char = '?';
     widget->cursor.x++;
     break;
   };
@@ -622,6 +670,14 @@ U0 @umami_terminal_output_char(Window *win, TerminalWidget *widget) {
     widget->cursor.y++;
     widget->cursor.x = 0;
   }
+  if (widget->cursor.y >= widget->size.rows - 1) {
+    widget->cursor.y--;
+    widget->max.y++;
+    widget->scroll.y = widget->max.y;
+    @umami_terminal_set_row(win, widget, widget->cursor.y, NULL);
+    @umami_terminal_repaint_rows(win, widget);
+  }
+  @umami_terminal_set_col(win, widget, widget->cursor.y, widget->cursor.x, ' ');
 }
 
 U0 @umami_terminal_repaint(Window *win, TerminalWidget *widget, I64 x, I64 y) {
@@ -630,6 +686,12 @@ U0 @umami_terminal_repaint(Window *win, TerminalWidget *widget, I64 x, I64 y) {
   I64 current_row = NULL;
 
   @umami_terminal_calculate_size(win, widget);
+
+  if (widget->refresh) {
+    @umami_terminal_repaint_rows(win, widget);
+    widget->refresh = FALSE;
+  }
+
   while (FifoU8Cnt(widget->input)) {
     current_col = widget->cursor.x;
     current_row = widget->cursor.y;
@@ -648,7 +710,8 @@ U0 @umami_terminal_repaint(Window *win, TerminalWidget *widget, I64 x, I64 y) {
     if (widget->state == TERMINAL_STATE_CONSUME_END)
       widget->state = TERMINAL_STATE_OUTPUT;
   }
-  if (widget->state == TERMINAL_STATE_OUTPUT && !widget->cursor.hidden)
+  if (widget->state == TERMINAL_STATE_OUTPUT && !widget->cursor.hidden &&
+      widget->scroll.y == widget->max.y)
     Rect2D(widget->backing_store, 2 + (widget->cursor.x * 8),
            2 + (widget->cursor.y * 16), 8, 16, widget->color.cursor);
 }
@@ -729,7 +792,12 @@ U0 @umami_input_repaint(Window *win, I64 event,
 
   Context2D *text_input_ctx = NewContext2D(widget->width - 4, widget->height);
 
-  text = &widget->text;
+  if (widget->is_password) {
+    StrCpy(widget->password, widget->text);
+    for (text_x_pos = 0; text_x_pos < StrLen(widget->password); text_x_pos++)
+      widget->password[text_x_pos] = '*';
+  }
+  text = T(widget->is_password, &widget->password, &widget->text);
   index = 0;
   text_width;
   text_x_pos = 0;
@@ -812,6 +880,48 @@ U0 @umami_label_repaint(Window *win, BitmapFontTextLabelWidget *widget, I64 x,
   if (widget->text)
     PutS2D(win->render_ctx, widget->font, x, y, widget->color, -1,
            widget->text);
+}
+
+U0 @umami_list_view_repaint(Window *win, ListViewWidget *widget, I64 x, I64 y) {
+
+}
+
+U0 @umami_menu_item_repaint(Window *win, MenuItemWidget *widget, I64 x, I64 y) {
+  U32 text_color = Color(0, 0, 0);
+  I64 text_x = 8;
+  I64 text_y = 4 + (widget->height / 2) - (16 / 2);
+  I64 icon_x = 4;
+  I64 icon_y = 0;
+  if (widget->icon) {
+    icon_y = 4 + (widget->height / 2) - (widget->icon->height / 2) - 3;
+  }
+  if (@widget_is_hovered(win->x + x, win->y + y, widget)) {
+    Rect2D(win->render_ctx, x, y, widget->width, widget->height,
+           Compositor.theme.color.hilight);
+    text_color = Color(255, 255, 255);
+    if (widget->submenu) {
+      Gui.Window.Show(widget->submenu);
+      Gui.Window.Refresh(widget->submenu);
+      if (Compositor.GetWindowByZIndex(Compositor.max_z_index - 3) !=
+          widget->submenu) {
+        Gui.Window.SetZIndex(widget->submenu, Compositor.max_z_index - 3);
+      }
+    }
+  }
+  if (!(@widget_is_hovered(win->x + x, win->y + y, widget))) {
+    if (widget->submenu) {
+      Gui.Window.Hide(widget->submenu);
+    }
+  }
+  if (!widget->font)
+    widget->font = Compositor.theme.font.menu;
+  if (widget->icon) {
+    Blot2D(win->render_ctx, x + icon_x, y + icon_y, widget->icon);
+    text_x += 20;
+  }
+  if (widget->text)
+    PutS2D(win->render_ctx, widget->font, x + text_x, y + text_y,
+           T(widget->color, widget->color, text_color), -1, widget->text);
 }
 
 U0 @umami_radio_repaint(Window *win, RadioButtonWidget *widget, I64 x, I64 y) {
@@ -1004,10 +1114,106 @@ U0 @umami_vert_slider_repaint(Window *win, I64 event,
     widget->change = TRUE;
 }
 
+U0 @umami_vert_scroll_button_repaint(Window *win, I64 x, I64 y, I64 width,
+                                     I64 height) {
+  I64 i;
+
+  Rect2D(win->render_ctx, x, y, width, height, Color(192, 192, 192));
+  for (i = 0; i < height; i++) {
+    Line2D(win->render_ctx, x, y, x, y + height - 1, Color(192, 192, 192));
+    Line2D(win->render_ctx, x + 1, y, x + 1, y + height - 1,
+           Color(255, 255, 255));
+    Line2D(win->render_ctx, x + 14, y, x + width - 2, y + height - 1,
+           Color(128, 128, 128));
+    Line2D(win->render_ctx, x + 15, y, x + width - 1, y + height - 1,
+           Color(64, 64, 64));
+  }
+
+  Plot2D(win->render_ctx, x + 1, y, Color(192, 192, 192));
+  Plot2D(win->render_ctx, x + 14, y, Color(192, 192, 192));
+  Plot2D(win->render_ctx, x + 15, y, Color(64, 64, 64));
+
+  Line2D(win->render_ctx, x + 1, y + 1, x + width - 2, y + 1,
+         Color(255, 255, 255));
+  Plot2D(win->render_ctx, x + 14, y + 1, Color(128, 128, 128));
+  Plot2D(win->render_ctx, x + 15, y + 1, Color(64, 64, 64));
+
+  Line2D(win->render_ctx, x + 1, y + height - 2, x + width - 2, y + height - 2,
+         Color(128, 128, 128));
+
+  Line2D(win->render_ctx, x, y + height - 1, x + width - 1, y + height - 1,
+         Color(64, 64, 64));
+}
+
+U0 @umami_vert_scrollbar_repaint(Window *win, I64 event,
+                                 VerticalScrollBarWidget *widget, I64 x,
+                                 I64 y) {
+  I64 scroll = widget->scroll;
+  I64 segment_length = widget->length;
+  I64 i, j;
+  Bool fill = TRUE;
+
+  if (widget->in_drag && Mouse.y > win->y + widget->y &&
+      Mouse.y < win->y + widget->y + widget->height) {
+    if (widget->origin.mouse_y != Mouse.y) {
+      widget->scroll += (Mouse.y - widget->origin.mouse_y);
+      widget->origin.mouse_y = Mouse.y;
+    }
+  }
+  if (@widget_is_hovered(win->x + x, win->y + y, widget) &&
+      event == CPZ_MSG_WIN_LEFT_BTN_DOWN) {
+    if (Mouse.y > win->y + y + 16 &&
+        Mouse.y < win->y + y + widget->height - 16) {
+      widget->scroll = (Mouse.y - win->y - y - (widget->length / 2));
+      widget->origin.mouse_y = Mouse.y;
+      widget->in_drag = TRUE;
+    }
+  }
+  if (@widget_is_hovered(win->x + x, win->y + y, widget) &&
+      event == CPZ_MSG_WIN_MOUSE_WHEEL) {
+    widget->scroll += Compositor.mouse.z;
+  }
+  widget->scroll = Max(16, widget->scroll);
+  widget->scroll = Min(widget->height - 1, widget->scroll);
+  while (widget->scroll + segment_length > widget->height - 16)
+    widget->scroll--;
+  widget->value = ToI64((widget->max * 1.0) / (widget->height * 1.0) *
+                        (widget->scroll * 1.0));
+  if (!Mouse.left)
+    widget->in_drag = FALSE;
+
+  Rect2D(win->render_ctx, x, y, widget->width, widget->height,
+         Color(127, 127, 127));
+
+  for (i = 0; i < widget->width; i++) {
+    for (j = 16; j < widget->height - 16; j++) {
+      if (fill)
+        Plot2D(win->render_ctx, i + x, j + y, Color(255, 255, 255));
+      fill = !fill;
+    }
+    fill = !fill;
+  }
+
+  @umami_vert_scroll_button_repaint(win, x, y, widget->width, 16);
+  @umami_vert_scroll_button_repaint(win, x, y + widget->height - 16,
+                                    widget->width, 16);
+
+  Blot2D(win->render_ctx, x, y, umami_widget_sb_up_button);
+  Blot2D(win->render_ctx, x, y + widget->height - 16,
+         umami_widget_sb_down_button);
+
+  @umami_vert_scroll_button_repaint(win, x, y + widget->scroll, widget->width,
+                                    segment_length);
+
+  if (widget->scroll != scroll)
+    widget->change = TRUE;
+}
+
 U0 @umami_widgets_repaint(Window *win, I64 event, I64 origin_x, I64 origin_y) {
   @window_widgets_list *widgets_list;
   Widget *widget;
   Context2D *ctx;
+  Bool widget_is_hovered;
   I64 x, y;
   F64 ttf_point_to_size;
   no_warn ctx;
@@ -1016,12 +1222,18 @@ U0 @umami_widgets_repaint(Window *win, I64 event, I64 origin_x, I64 origin_y) {
   if (event == CPZ_MSG_WIN_LEFT_BTN_DOWN)
     win->focused_widget = NULL;
 
+  widget_is_hovered = FALSE;
   widgets_list = win->widget;
   while (widgets_list) {
     if (widgets_list->widget) {
       widget = widgets_list->widget;
       x = win->x + origin_x + widget->x;
       y = win->y + origin_y + widget->y;
+
+      if (@gui_window_is_hovered(win) && @widget_is_hovered(x, y, widget)) {
+        win->hovered_widget = widget;
+        widget_is_hovered = TRUE;
+      }
 
       if (@widget_is_hovered(x, y, widget) &&
           event == CPZ_MSG_WIN_LEFT_BTN_DOWN) {
@@ -1032,6 +1244,9 @@ U0 @umami_widgets_repaint(Window *win, I64 event, I64 origin_x, I64 origin_y) {
     }
     widgets_list = widgets_list->next;
   }
+
+  if (!widget_is_hovered)
+    win->hovered_widget = NULL;
 
   if (!Mouse.left && win->mouse_down_widget) {
     widget = win->mouse_down_widget;
@@ -1095,7 +1310,10 @@ U0 @umami_widgets_repaint(Window *win, I64 event, I64 origin_x, I64 origin_y) {
         break;
       case WIDGET_TYPE_CONTEXT2D:
         if (widget(Context2DWidget *)->ctx)
-          Blot2D(win->render_ctx, x, y, widget(Context2DWidget *)->ctx);
+          if (widget(Context2DWidget *)->fast_copy)
+            CopyRect2D(win->render_ctx, x, y, widget(Context2DWidget *)->ctx);
+          else
+            Blot2D(win->render_ctx, x, y, widget(Context2DWidget *)->ctx);
         break;
       case WIDGET_TYPE_RADIO:
         @umami_radio_repaint(win, widget, x, y);
@@ -1106,37 +1324,24 @@ U0 @umami_widgets_repaint(Window *win, I64 event, I64 origin_x, I64 origin_y) {
       case WIDGET_TYPE_LABEL:
         @umami_label_repaint(win, widget, x, y);
         break;
+      case WIDGET_TYPE_LISTVIEW:
+        @umami_list_view_repaint(win, widget, x, y);
+        break;
+      case WIDGET_TYPE_MENU_ITEM:
+        @umami_menu_item_repaint(win, widget, x, y);
+        break;
       case WIDGET_TYPE_HORZ_SLIDER:
         @umami_horz_slider_repaint(win, event, widget, x, y);
         break;
       case WIDGET_TYPE_VERT_SLIDER:
         @umami_vert_slider_repaint(win, event, widget, x, y);
         break;
-      /*
-      case WIDGET_TYPE_TTF_LABEL:
-        if (widget(TrueTypeTextLabelWidget *)->text) {
-          if (!widget(TrueTypeTextLabelWidget *)->prev_text ||
-              StrCmp(widget(TrueTypeTextLabelWidget *)->prev_text,
-                     widget(TrueTypeTextLabelWidget *)->text)) {
-            // ttf_point_to_size =
-            // @truetype_point_to_size(widget(TrueTypeTextLabelWidget*)->size);
-            Spawn(&@umami_render_truetype_text, widget, , 1);
-            // widget->backing_store = @truetype_TextRect2D(widget->width,
-            // ttf_point_to_size, 2, truetype_fonts,
-            // widget(TrueTypeTextLabelWidget*)->font,
-            //    widget(TrueTypeTextLabelWidget*)->text,
-            //    widget(TrueTypeTextLabelWidget*)->color,
-            //    widget(TrueTypeTextLabelWidget*)->bgcolor);
-            if (widget(TrueTypeTextLabelWidget *)->prev_text)
-              Free(widget(TrueTypeTextLabelWidget *)->prev_text);
-            widget(TrueTypeTextLabelWidget *)->prev_text =
-                StrNew(widget(TrueTypeTextLabelWidget *)->text);
-          }
-        }
-        if (widget->backing_store)
-          CopyRect2D(win->render_ctx, x, y, widget->backing_store);
+      case WIDGET_TYPE_HORZ_SCROLLBAR:
+        //@umami_horz_scrollbar_repaint(win, event, widget, x, y);
         break;
-      */
+      case WIDGET_TYPE_VERT_SCROLLBAR:
+        @umami_vert_scrollbar_repaint(win, event, widget, x, y);
+        break;
       default:
         break;
       }
@@ -1188,14 +1393,16 @@ U0 @umami_window_repaint(Window *win, I64 event) {
   @umami_widgets_repaint(win, event, widget_origin_x, widget_origin_y);
 
   // Draw window margins
-  Rect2D(win->render_ctx, 0, 0, win->width, 4,
-         Color(204, 204, 204, win->opacity));
-  Rect2D(win->render_ctx, 0, win->height - 4, win->width, 4,
-         Color(204, 204, 204, win->opacity));
-  Rect2D(win->render_ctx, 0, 0, 4, win->height,
-         Color(204, 204, 204, win->opacity));
-  Rect2D(win->render_ctx, win->width - 5, 0, 4, win->height,
-         Color(204, 204, 204, win->opacity));
+  if (!@gui_window_flag_is_set(win, WIN_FLAGS_NOFILL)) {
+    Rect2D(win->render_ctx, 0, 0, win->width, 4,
+           Color(204, 204, 204, win->opacity));
+    Rect2D(win->render_ctx, 0, win->height - 4, win->width, 4,
+           Color(204, 204, 204, win->opacity));
+    Rect2D(win->render_ctx, 0, 0, 4, win->height,
+           Color(204, 204, 204, win->opacity));
+    Rect2D(win->render_ctx, win->width - 5, 0, 4, win->height,
+           Color(204, 204, 204, win->opacity));
+  }
 
   // Draw window border
   Line2D(win->render_ctx, 0, 0, win->width - 1, 0,
@@ -1332,8 +1539,10 @@ U0 @umami_window_repaint(Window *win, I64 event) {
     if (win == Compositor.active_win) {
       HGradientRect2D(win->render_ctx, title_bar_x, title_bar_y,
                       title_bar_width, title_bar_height,
-                      Color(85, 18, 132, win->opacity),
-                      Color(233, 15, 240, win->opacity));
+                      Color(10, 36, 106, win->opacity),
+                      Color(165, 201, 239, win->opacity));
+      // Color(85, 18, 132, win->opacity),
+      // Color(233, 15, 240, win->opacity));
       PutS2D(win->render_ctx, Compositor.theme.font.menu, title_bar_x + 4,
              title_bar_y + 4, Color(255, 255, 255, win->opacity),
              title_bar_width, &window_title);
@@ -1378,7 +1587,7 @@ U0 @umami_window_repaint(Window *win, I64 event) {
 }
 
 Compositor.theme.color.active_border = Color(0, 0, 0);
-Compositor.theme.color.hilight = Color(233, 15, 240);
+Compositor.theme.color.hilight = Color(8, 33, 107);
 
 BitmapFont *@umami_theme_bitmapfont_001 = @bitmapfont_new_from_context2d(
     PNG.FileToContext2D("T:/Media/Themes/Umami/BitmapFont/menu.png"),
@@ -1416,3 +1625,20 @@ Compositor.theme.window.min_width = 128;
 Compositor.theme.window.min_height = 128;
 
 Compositor.theme.window_repaint = &@umami_window_repaint;
+
+Context2D **umami_pointer_wait_frames = CAlloc(sizeof(Context2D *) * 18);
+Context2D *umami_pointer_wait_anim =
+    PNG.FileToContext2D("T:/Media/Themes/Umami/Pointer/wait.png");
+
+U0 @umami_pointer_wait_anim_init() {
+  I64 i;
+  for (i = 0; i < 18; i++) {
+    umami_pointer_wait_frames[i] = NewContext2D(24, 24);
+    Blot2D(umami_pointer_wait_frames[i], 0, -(24 * i), umami_pointer_wait_anim);
+  }
+  DelContext2D(umami_pointer_wait_anim);
+}
+
+@umami_pointer_wait_anim_init;
+Compositor.theme.pointer.wait =
+    Animation2D.NewFromFrames(umami_pointer_wait_frames, 18, 50);

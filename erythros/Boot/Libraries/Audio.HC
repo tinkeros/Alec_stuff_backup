@@ -85,32 +85,38 @@ U32 *@audio_buffer_mono_to_stereo(U16 *buf, I64 size) {
   return out;
 }
 
+U32 *@audio_buffer_copy(U32 *buf, I64 size) {
+  U32 *out = MAlloc(size);
+  MemCpyU32(out, buf, size / 4);
+  return out;
+}
+
 Sound *@audio_sound_from_file(U8 *filename) {
-  if (!FileFind(filename))
+  if (!FileSystem.PathExists(filename))
     return NULL;
   I64 length = 0;
   U32 *buf = NULL;
-  U32 *buf2 = NULL;
   I64 size = 0;
-  U8 *data = FileRead(filename, &size);
+  U8 *data = FileSystem.ReadFile(filename, &size);
+  if (!data)
+    return NULL;
   if (@audio_buffer_is_wav(data, size)) {
     @sound_file_wav_header *wav = data;
     if (wav->fmt_chunk_size == 16 && wav->audio_format == 1 &&
         wav->sample_rate == 48000) {
       switch (wav->num_channels) {
       case 1:
-        buf2 = @audio_buffer_mono_to_stereo(&wav->bytes, wav->data_bytes);
-        Free(buf);
-        buf = buf2;
+        buf = @audio_buffer_mono_to_stereo(&wav->bytes, wav->data_bytes);
         length = wav->data_bytes / 2;
         break;
       case 2:
-        buf = &wav->bytes;
+        buf = @audio_buffer_copy(&wav->bytes, wav->data_bytes);
         length = wav->data_bytes / 4;
         break;
       }
     }
   }
+  Free(data);
   return @audio_sound_from_buffer(buf, length);
 }
 
@@ -120,7 +126,7 @@ Audio.SoundFromFile = &@audio_sound_from_file;
 Audio.FreeSound = &@audio_free_sound;
 Audio.PlaySound = &@audio_play_sound;
 
-Sound *@snd_beep = Audio.SoundFromFile("T:/Media/Sounds/Beep.wav");
+Sound *@snd_beep = Audio.SoundFromFile("/mnt/redsea/t/Media/Sounds/Beep.wav");
 
 U0 @audio_beep() { Audio.PlaySound(@snd_beep); }
 

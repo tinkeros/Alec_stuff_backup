@@ -19,6 +19,7 @@ class @theme_pointers {
   Context2D *pen;
   Context2D *move;
   Context2D *link;
+  AnimationContext2D *wait;
   Context2D *horz;
   Context2D *vert;
   Context2D *text;

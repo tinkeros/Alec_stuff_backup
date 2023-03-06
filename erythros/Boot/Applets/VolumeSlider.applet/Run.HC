@@ -1,4 +1,4 @@
-#include "T:/Include/Gui";
+Gui.App();
 
 Window *win = Compositor.CreateWindow(Display.Width(), 32, 256, 32,
                                       WIN_FLAGS_NOHILIGHT | WIN_FLAGS_SKIP);
@@ -9,7 +9,7 @@ volume_slider_icon->ctx = NewContext2D(24, 24);
 HorizontalSliderWidget *volume_slider =
     Gui.CreateWidget(win, WIDGET_TYPE_HORZ_SLIDER, 32, 4, 212, 24);
 volume_slider->max = 100;
-volume_slider->scroll = volume_slider->width / 8;
+volume_slider->scroll = volume_slider->width;
 
 Context2DWidget *tray_icon = SystemTray.RegisterItem();
 

@@ -34,12 +34,12 @@ U0 @systemtray_unregister_item(Widget *item) {
 U0 @systemtray_reindex_items() {
   I64 x = Display.Width() - 100;
   @window_widgets_list *item = Compositor.menubar.win->widget;
-  while (item) {
-    if (item->widget->type == WIDGET_TYPE_CONTEXT2D) {
-      x -= item->widget->width + 4;
-      item->widget->x = x;
-    }
+  while (item->next)
     item = item->next;
+  while (item->widget->type == WIDGET_TYPE_CONTEXT2D) {
+    x -= item->widget->width + 4;
+    item->widget->x = x;
+    item = item->prev;
   }
   Gui.Window.Refresh(Compositor.menubar.win);
 }

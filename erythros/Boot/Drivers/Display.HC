@@ -15,9 +15,11 @@ class @display {
   ();
   I64(*Driver)
   ();
+  U0 (*Update)();
 };
 
 @display Display;
 Display.driver = NULL;
+Display.Update = NULL;
 
 "display ";

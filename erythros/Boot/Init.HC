@@ -1,3 +1,7 @@
+// Save pointer to TempleOS system-wide (CTRL-ALT) callbacks
+U64 tos_fp_cbs_enabled = keydev.fp_ctrl_alt_cbs;
+U64 tos_fp_cbs_disabled = CAlloc(0xD0);
+
 U0 @init_erythros() {
   I64 err;
 
@@ -18,7 +22,7 @@ U0 @init_erythros() {
   DocDump(adam_task->put_doc);
 
   // Disable TempleOS system-wide (CTRL-ALT) callbacks
-  MemSet(keydev.fp_ctrl_alt_cbs, 0, 0xD0);
+  keydev.fp_ctrl_alt_cbs = tos_fp_cbs_disabled;
 
   // Suspend TempleOS Window Manager task
   Suspend(sys_winmgr_task);
@@ -44,14 +48,16 @@ U0 @init_erythros() {
 
   if (!Mouse.Update)
     VBoxGuest.Init(); // Detect VBox mouse integration
+  if (!Mouse.Update)
+    VirtioTablet.Init(); // Detect QEMU mouse integration
 
   // Initialize Network
   @virtio_net_init;
   Spawn(&@virtio_net_handler_task, , "Virtio-net", mp_cnt - 1);
   Spawn(&Netcfg, , "Netcfg");
 
-  // Initialize Audio
-  Audio.Init();
+  // Initialize FileSystem
+  FileSystem.Init();
 
   // Initialize Compositor
   Compositor.Init();
@@ -60,7 +66,7 @@ U0 @init_erythros() {
   Spawn(Compositor.Task, , "Compositor");
 
   // Spawn SystemStarter
-  Spawn(SystemStarter.Task, , "SystemStarter");
+  Spawn(SystemStarter.Task, , "SystemStarter", 1);
 }
 
 @init_erythros;

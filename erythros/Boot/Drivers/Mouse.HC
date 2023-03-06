@@ -2,7 +2,8 @@
 // classes.
 extern U0 @vmsvga_mouse_pointer_set(U32 *pointer, I64 width, I64 height);
 
-#define MI_VBOX 0x01
+#define MI_QEMU 0x01
+#define MI_VBOX 0x02
 #define MS_UPDATE_INTERVAL 10
 
 #define MS_UP 0

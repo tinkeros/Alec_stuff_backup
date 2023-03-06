@@ -1,4 +1,4 @@
-#include "T:/Include/Gui";
+Gui.App();
 
 Context2DWidget *clipmanager_icon = SystemTray.RegisterItem();
 

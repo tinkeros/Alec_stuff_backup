@@ -1,5 +1,6 @@
-#define ipc user_data
+#define ipc user_data.u32[0]
 #define IPC_QUEUE_SIZE 1024
+#define IPC_ENQUEUE_LIMIT 16
 
 class IpcMessage {
   CTask *client;
@@ -17,7 +18,7 @@ class @ipc {
 U0 @ipc_queue_init(CTask *task) { // Initialize a task's IpcMessage Queue
   MemSetU32(task->pad, 0, 1);
   if (!task->ipc) {
-    task->ipc = FifoI64New(IPC_QUEUE_SIZE);
+    task->ipc = FifoI64New(IPC_QUEUE_SIZE, task->code_heap);
   }
 }
 
@@ -33,6 +34,10 @@ IpcMessage *@ipc_msg_recv() { // Receive a IpcMessage from current task's
 U0 @ipc_msg_send(
     CTask *task,
     IpcMessage *msg) { // Send a IpcMessage to a task (client or server)
+  if (FifoI64Cnt(task->ipc) > IPC_ENQUEUE_LIMIT) {
+    Free(msg);
+    return;
+  }
   FifoI64Ins(task->ipc, msg);
 }
 

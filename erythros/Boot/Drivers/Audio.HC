@@ -56,14 +56,16 @@ class @audio {
 
 @audio Audio;
 
-U0 @audio_mix_output(U32 *buf, I64) {
+U0 @audio_mix_output(U32 *buf, I64 length = NULL) {
   I64 i;
   I64 j;
   I64 acc_sample_L = 0;
   I64 acc_sample_R = 0;
   I64 acc_streams = 0;
   U32 sample;
-  for (i = 0; i < AUDIO_OUTPUT_BUFFER_SIZE; i++) {
+  if (!length)
+    length = AUDIO_OUTPUT_BUFFER_SIZE;
+  for (i = 0; i < length / 4; i++) {
     acc_sample_L = 0;
     acc_sample_R = 0;
     acc_streams = 0;
@@ -94,20 +96,18 @@ U0 @audio_init() {
   I64 i = 0;
   for (i = 0; i < AUDIO_MAX_STREAMS + 1; i++)
     Audio.output[i].data = FifoI64New(AUDIO_STREAM_FIFO_SIZE);
-  if (HashFind("fp_snd_fill_buf", adam_task->hash_table, HTT_GLBL_VAR)) {
-#exe {
-    StreamPrint("fp_snd_fill_buf = Audio.MixOutput;\n");
-  }
-}
-Audio.mixer.left = 12;
-Audio.mixer.right = 12;
-Audio.wavegen.duration = 0.0;
-Audio.wavegen.frequency = 0;
-Audio.device.enabled = TRUE;
+  Audio.mixer.left = 100;
+  Audio.mixer.right = 100;
+  Audio.wavegen.duration = 0.0;
+  Audio.wavegen.frequency = 0;
+  Audio.device.enabled = TRUE;
 }
 
 Audio.driver = NULL;
 Audio.Init = &@audio_init;
 Audio.MixOutput = &@audio_mix_output;
+
+// Initialize Audio
+Audio.Init();
 
 "audio ";

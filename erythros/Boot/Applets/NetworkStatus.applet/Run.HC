@@ -1,4 +1,4 @@
-#include "T:/Include/Gui";
+Gui.App();
 
 U64 flags = WIN_FLAGS_MOVABLE | WIN_FLAGS_ICON | WIN_FLAGS_TITLE_BAR |
             WIN_FLAGS_CLOSE_BUTTON | WIN_FLAGS_SKIP;

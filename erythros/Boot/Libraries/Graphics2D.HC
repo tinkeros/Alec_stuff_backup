@@ -21,6 +21,87 @@ U32 Color(I64 r, I64 g, I64 b, I64 a = 255) {
   return c;
 }
 
+U32 ColorHSVToRGB(I64 hue, I64 saturation, I64 value) {
+  if(!(0 <= hue < 360))
+    hue = 0;
+  if(!(0 <= saturation <= 100))
+    saturation = 100;
+  if(!(0 <= value <= 100))
+    value = 100;
+
+  F64 s = saturation / 100.0;
+  F64 v = value / 100.0;
+
+  F64 c = v * s;
+  F64 x = c * (1 - Abs(((hue / 60.0) % 2) - 1));
+  F64 m = v - c;
+
+  F64 r, g, b;
+  switch(hue) {
+    case 0...59:
+      r = c;
+      g = x;
+      b = 0;
+      break;
+    case 60...119:
+      r = x;
+      g = c;
+      b = 0;
+      break;
+    case 120...179:
+      r = 0;
+      g = c;
+      b = x;
+      break;
+    case 180...239:
+      r = 0;
+      g = x;
+      b = c;
+      break;
+    case 240...299:
+      r = x;
+      g = 0;
+      b = c;
+      break;
+    case 300...359:
+      r = c;
+      g = 0;
+      b = x;
+      break;
+  }
+
+  return Color(ToI64((r + m) * 255), ToI64((g + m) * 255), ToI64((b + m) * 255));
+}
+
+U0 ColorRGBToHSV(U32 color, I64 *hue, I64 *saturation, I64 *value) {
+  if(!hue || !saturation || !value)
+    return;
+  
+  F64 r = color.u8[2] / 255.0;
+  F64 g = color.u8[1] / 255.0;
+  F64 b = color.u8[0] / 255.0;
+
+  F64 cMax = Max(r, Max(g, b));
+  F64 cMin = Min(r, Min(g, b));
+
+  F64 delta = cMax - cMin;
+
+  if(delta == 0)
+    *hue = 0;
+  else if(cMax == r)
+    *hue = 60 * (((g - b) / delta) % 6);
+  else if(cMax == g)
+    *hue = 60 * (((b - r) / delta) + 2);
+  else
+    *hue = 60 * (((r - g) / delta) + 4);
+
+  if(cMax != 0)
+    *saturation = (delta / cMax) * 100;
+  else
+    *saturation = 0;
+  *value = cMax * 100;
+}
+
 /*
  * ISO Latin-1 Font
  *
@@ -652,6 +733,28 @@ U0 Line2D(Context2D *ctx, I64 x1, I64 y1, I64 x2, I64 y2,
   }
 }
 
+Context2D *MirroredHorz2D(Context2D *src) {
+  if (!src)
+    return NULL;
+  Context2D *dst = NewContext2D(src->width, src->height);
+  I64 x, y;
+  for (y = 0; y < src->height; y++)
+    for (x = src->width - 1; x > -1; x--)
+      Plot2D(dst, (src->width - 1) - x, y, Peek2D(src, x, y));
+  return dst;
+}
+
+Context2D *MirroredVert2D(Context2D *src) {
+  if (!src)
+    return NULL;
+  Context2D *dst = NewContext2D(src->width, src->height);
+  I64 x, y;
+  for (x = 0; x < src->width; x++)
+    for (y = src->height - 1; y > -1; y--)
+      Plot2D(dst, x, (src->height - 1) - y, Peek2D(src, x, y));
+  return dst;
+}
+
 I64 Blend2D(F64 alpha, F64 value1, F64 value2) {
   return ToI64((1 - alpha) * value1 + alpha * value2);
 }
@@ -851,6 +954,26 @@ U0 ConsolePrint2D(Context2D *ctx, I64 x, I64 y,
     str++;
   }
   Free(buf);
+}
+
+U0 PutChar2D(Context2D *ctx, BitmapFont *font, I64 x, I64 y,
+             U32 color = Color(0, 0, 0), I64 char) {
+  if (!ctx)
+    return;
+  I64 xx;
+  I64 yy;
+  I64 char_index = 0;
+  while (char != font->char_map[char_index])
+    char_index++;
+
+  for (yy = 0; yy < 16; yy++) {
+    for (xx = 0; xx < 16; xx++) {
+      if (font->bitmap[(char_index * 16) + yy] & 0x8000 >> xx == 0x8000 >> xx &&
+          char != ' ') {
+        Plot2D(ctx, x + xx, y + yy, color);
+      }
+    }
+  }
 }
 
 I64 PutS2D(Context2D *ctx, BitmapFont *font, I64 x, I64 y,

@@ -1,4 +1,4 @@
-#include "T:/Include/Gui";
+Gui.App();
 
 U0 Main() { Suspend; }
 

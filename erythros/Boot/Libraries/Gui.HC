@@ -18,6 +18,7 @@ extern class Window;
 
 #define WIN_FLAGS_SKIP 0x1000
 #define WIN_FLAGS_NOFILL 0x2000
+#define WIN_FLAGS_MENU 0x4000
 
 #define WIN_FLAGS_MAX 0x10000
 
@@ -57,6 +58,7 @@ class Widget {
   Widget *echo;
   Window *parent_win;
   Context2D *backing_store;
+  Context2D *pointer;
   @widget_callbacks callback;
   @widget_origin origin;
 };
@@ -129,10 +131,12 @@ class Window {
   I64 min_height;
   Context2D *icon;
   Context2D *backing_store;
+  Context2D *pointer;
   Context2D *render_ctx;
   Context2D *resize_ctx;
   Widget *mouse_down_widget;
   Widget *focused_widget;
+  Widget *hovered_widget;
   @window_buttons button;
   @window_callbacks callback;
   @window_origin origin;
@@ -145,9 +149,12 @@ class Window {
 };
 
 class @gui_widget {
+  Bool (*IsHovered)(Window * win, Widget * widget);
   U0 (*SetCallback)(Widget * widget, U8 * name, U64 callback);
   U0 (*SetEcho)(Widget * widget, Widget * echo);
   U0 (*SetFont)(Widget * widget, U8 * font_name);
+  U0 (*SetMousePointer)(Widget * widget, Context2D * pointer);
+  U0 (*ClearMousePointer)(Widget * widget);
   U0 (*SetOpacity)(Widget * widget, I64 opacity);
   U0 (*SetText)(Widget * widget, U8 * text);
 };
@@ -157,13 +164,17 @@ class @gui_window {
   U0 (*DisableAlphaChannel)(Window * win);
   U0 (*EnableAlphaChannel)(Window * win);
   U0 (*Hide)(Window * win);
+  Bool (*IsHovered)(Window * win);
   Bool (*IsVisible)(Window * win);
   U0 (*SetCallback)(Window * win, U8 * name, U64 callback);
   U0 (*SetFocus)(Window * win);
   U0 (*SetIcon)(Window * win, Context2D * icon);
+  U0 (*SetMousePointer)(Window * win, Context2D * pointer);
+  U0 (*ClearMousePointer)(Window * win);
   U0 (*SetOpacity)(Window * win, I64 opacity);
   U0 (*SetTitle)(Window * win, U8 * text);
   U0 (*SetPosition)(Window * win, I64 x, I64 y);
+  U0 (*SetZIndex)(Window * win, I64 index);
   U0 (*Show)(Window * win);
   U0 (*Refresh)(Window * win);
 };
@@ -171,16 +182,35 @@ class @gui_window {
 class @gui {
   @gui_widget Widget;
   @gui_window Window;
+  U0 (*App)();
+  Widget *(*InitWidget)(Widget * widget, Window * win, I64 type, I64 x, I64 y,
+                        I64 width, I64 height);
   Widget *(*CreateWidget)(Window * win, I64 type, I64 x, I64 y, I64 width,
                           I64 height);
 };
 
 @gui Gui;
 
+I64 @gui_app_header_size;
+U8 *@gui_app_header_data = FileRead("T:/Include/Gui.HC", &@gui_app_header_size);
+
+U0 @gui_app() {
+  CDoc *@gui_app_header_doc = DocNew;
+  DocLoad(@gui_app_header_doc, @gui_app_header_data, @gui_app_header_size);
+  ExeDoc(@gui_app_header_doc);
+}
+
 Bool @gui_window_flag_is_set(Window *win, U64 flag) {
   if (!win)
     return FALSE;
   if (win->flags & flag == flag)
+    return TRUE;
+  return FALSE;
+}
+
+Bool @gui_window_is_hovered(Window *win) {
+  if (Mouse.x > win->x && Mouse.x < win->x + win->width && Mouse.y > win->y &&
+      Mouse.y < win->y + win->height)
     return TRUE;
   return FALSE;
 }
@@ -248,6 +278,18 @@ U0 @gui_window_set_icon(Window *win, Context2D *icon) {
     Gui.Window.Refresh(win);
 }
 
+U0 @gui_window_set_mouse_pointer(Window *win, Context2D *pointer) {
+  if (!win)
+    return;
+  win->pointer = pointer;
+}
+
+U0 @gui_window_clear_mouse_pointer(Window *win) {
+  if (!win)
+    return;
+  win->pointer = NULL;
+}
+
 U0 @gui_window_set_opacity(Window *win, I64 opacity) {
   if (!win)
     return;
@@ -311,13 +353,17 @@ U0 @gui_window_set_callback(Window *win, U8 *name, U64 callback) {
     win->callback.close = callback;
 }
 
+Gui.App = &@gui_app;
 Gui.Window.Center = &@gui_window_center;
 Gui.Window.DisableAlphaChannel = &@gui_window_disable_alpha_channel;
 Gui.Window.EnableAlphaChannel = &@gui_window_enable_alpha_channel;
 Gui.Window.Hide = &@gui_window_hide;
+Gui.Window.IsHovered = &@gui_window_is_hovered;
 Gui.Window.IsVisible = &@gui_window_is_visible;
 Gui.Window.SetCallback = &@gui_window_set_callback;
 Gui.Window.SetIcon = &@gui_window_set_icon;
+Gui.Window.SetMousePointer = &@gui_window_set_mouse_pointer;
+Gui.Window.ClearMousePointer = &@gui_window_clear_mouse_pointer;
 Gui.Window.SetOpacity = &@gui_window_set_opacity;
 Gui.Window.SetTitle = &@gui_window_set_title;
 Gui.Window.SetPosition = &@gui_window_set_position;

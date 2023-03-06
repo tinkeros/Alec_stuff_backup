@@ -7,8 +7,24 @@ U0 @string_append(U8 *dst, U8 *fmt,
     buf = StrNew(fmt);
   }
   U8 *src = buf;
-  StrPrint(dst + StrLen(dst), src);
+  StrCpy(dst + StrLen(dst), src);
   Free(buf);
+}
+
+Bool @string_is_number(U8 *s) {
+  while (*s) {
+    switch (*s) {
+    case '-':
+    case '.':
+    case '0' ... '9':
+      break;
+    default:
+      return FALSE;
+      break;
+    }
+    s++;
+  }
+  return TRUE;
 }
 
 U8 *@string_replace(U8 *s, U8 *oldW, U8 *newW) {
@@ -49,43 +65,17 @@ U8 *@string_replace(U8 *s, U8 *oldW, U8 *newW) {
   return result;
 }
 
-U8 **@string_split(U8 *s, U8 ch = '\n', I64 *cnt) {
-  U8 *p = s;
-  cnt[0] = 0;
-  while (*p) {
-    if (*p == ch)
-      cnt[0]++;
-    p++;
-  }
-  if (!(cnt[0]))
-    return NULL;
-  cnt[0]++;
-  I64 i = -1;
-  U8 **arr = CAlloc(sizeof(U8 *) * cnt[0]);
-  p = s;
-  while (*p) {
-    if (*p == ch || i < 0) {
-      i++;
-      arr[i] = p;
-      if (*p == ch) {
-        arr[i]++;
-        *p = NULL;
-      }
-    }
-    p++;
-  }
-  return arr;
-}
-
 class @string {
   U0 (*Append)(U8 * dst, U8 * fmt, ...);
+  Bool (*IsNumber)(U8 * s);
   U8 *(*Replace)(U8 * s, U8 * oldW, U8 * newW);
   U8 **(*Split)(U8 * s, U8 ch = '\n', I64 * cnt);
 };
 
 @string String;
 String.Append = &@string_append;
+String.IsNumber = &@string_is_number;
 String.Replace = &@string_replace;
-String.Split = &@string_split;
+String.Split = &@boot_init_split;
 
 "string ";

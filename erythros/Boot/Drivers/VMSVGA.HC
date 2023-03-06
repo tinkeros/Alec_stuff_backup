@@ -236,6 +236,8 @@ U0 @vmsvga_mouse_pointer_set(U32 *pointer, I64 width, I64 height) {
 
 U64 @vmsvga_get_framebuffer() { return vmsvga.fb; }
 
+U0 @vmsvga_display_update() { @vmsvga_reg_write(VMSVGA_REG_ENABLE, 1); }
+
 class @vmsvga {
   U0(*Init)
   (I64 w, I64 h, I64 bpp);

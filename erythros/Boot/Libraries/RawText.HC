@@ -1,5 +1,20 @@
+I64 @rawtext_output_port = NULL;
+
+U0 @rawtext_detect_qemu() {
+  CRAXRBCRCXRDX res;
+  CPUId(0x40000000, &res);
+  if (res.rbx == 'KVMK')
+    @rawtext_output_port = 0x3F8;
+}
+
+U0 @rawtext_detect_vbox() {
+  I64 res = PCIClassFind(0x088000, 0);
+  if (res >= 0)
+    @rawtext_output_port = 0x504;
+}
+
 U0 @dbg_put_char(I64 ch) {
-  OutU8(0x504, ch);
+  OutU8(@rawtext_output_port, ch);
   if (!System.text_mode)
     return;
   Context2D *fb = Graphics2D.FrameBufferContext2D();
@@ -77,5 +92,8 @@ tmp_kde->put_key = &@kd_raw_putkey;
 tmp_kde->put_s = &@kd_raw_puts;
 
 Function.Patch(&RawDr, &@rawdr_dummy);
+
+@rawtext_detect_qemu;
+@rawtext_detect_vbox;
 
 "rawtext ";

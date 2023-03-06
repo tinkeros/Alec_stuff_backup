@@ -1,0 +1,67 @@
+#!/usr/bin/python3
+from pathlib import Path
+import datetime
+import os
+import sys
+import time
+
+vm_name = 'TOS'
+mon_port = '33393'
+
+def attach_storage(isoc_file):
+  os.system('echo change ide1-cd0 ' + isoc_file + ' | nc 127.0.0.1 ' + mon_port + ' > /dev/null 2>&1')
+
+def delete_build_file(filename):
+  if os.path.exists(filename):
+    os.remove(filename)
+
+def detach_storage():
+  os.system('echo eject ide1-cd0 | nc 127.0.0.1 ' + mon_port + ' > /dev/null 2>&1')
+
+def exclude_lines_from_file(filename, keyword):
+    lines = open(filename, 'r').readlines()
+    out = open(filename, 'w')
+    for line in lines:
+        if line.find(keyword) == -1:
+            out.write(line)
+    out.close()
+
+def reset_vm():
+  os.system('echo system_reset | nc 127.0.0.1 ' + mon_port + ' > /dev/null 2>&1')
+
+def main():
+  detach_storage()
+
+  project_path = sys.argv[1] + '/'
+  project_name = project_path.rsplit('/')[-2]
+  build_path = str(Path.home()) + '/build/' + project_name
+  ext_repos_path = str(Path.home()) + '/cloned'
+  redsea_path = build_path + '/redsea'
+  boot_path = project_path + 'Boot'
+  isoc_file = build_path + '.ISO'
+
+  os.system('cd ' + project_path + '; git ls-files --modified --others *.HC | xargs -n 1 clang-format -i')
+  delete_build_file(isoc_file)
+  
+  os.system('rm -rf ' + redsea_path + '/*')
+  os.system('isoc-mount --rw --2k ' + isoc_file + ' ' + redsea_path)
+  time.sleep(.25)
+
+  os.system('cp -Rv ' + boot_path + '/* ' + redsea_path)
+
+  # Add 3rd party software packages
+  os.system('mkdir -p ' + redsea_path + '/3rdParty/SnailNet')
+  os.system('cp -Rv ' + ext_repos_path + '/Shrine/Adam/Net/* ' + redsea_path + '/3rdParty/SnailNet/')
+  exclude_lines_from_file(redsea_path + '/3rdParty/SnailNet/Dhcp.HC', '#include')  
+  exclude_lines_from_file(redsea_path + '/3rdParty/SnailNet/Netcfg.HC', '#include')
+
+  open(redsea_path + '/build_info.TXT', 'w').write('Erythros build ' + str(datetime.datetime.now())[:19] + '\n')
+
+  os.system('fusermount -u ' + redsea_path)
+  time.sleep(.5)
+
+  attach_storage(isoc_file)
+  reset_vm()
+
+main()
+sys.exit()

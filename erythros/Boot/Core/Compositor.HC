@@ -11,6 +11,12 @@
 #define CPZ_MSG_WIN_RIGHT_BTN_DOWN 0x100B
 #define CPZ_MSG_WIN_KEY_PRESS 0x100C
 #define CPZ_MSG_WIN_WIDGET_DESTROY 0x100D
+#define CPZ_MSG_WIN_SET_Z_INDEX 0x100E
+#define CPZ_MSG_SET_WALLPAPER 0x100F
+
+#define CPZ_WALLPAPER_CENTERED 0x0
+#define CPZ_WALLPAPER_AUTORESIZE 0x1
+#define CPZ_WALLPAPER_REPEAT 0x2
 
 class @compositor_menubar {
   Window *win;
@@ -26,6 +32,7 @@ class @compositor_windows_list {
 
 class @compositor {
   I64 next_id;
+  I64 max_z_index;
   Window *active_win;
   Context2D *blend_ctx;
   Context2D *ctx;
@@ -35,6 +42,7 @@ class @compositor {
   @compositor_windows_list *global_input_event_listeners;
   Bounds2D bounds;
   @mouse mouse;
+  @session session;
   @theme theme;
   Bool in_drag;
   Bool in_resize;
@@ -46,10 +54,12 @@ class @compositor {
                           Context2D *icon = NULL);
   U0 (*DestroyWindow)(Window * win);
   Window (*GetWindowByTitle)(U8 * title);
+  Window (*GetWindowByZIndex)(I64 index);
   U0 (*HideWindow)(Window * win);
   U0 (*ShowWindow)(Window * win);
   U0 (*RegisterForGlobalInputEvents)(Window * win);
   U0 (*UnregisterForGlobalInputEvents)(Window * win);
+  U0 (*SetWallpaper)(Context2D *ctx, U32 mode = CPZ_WALLPAPER_AUTORESIZE, U32 background = Color(0, 0, 0));
   U0(*Task)
   ();
 };
@@ -104,6 +114,125 @@ U0 @compositor_refresh(Window *win) {
   Ipc.MsgSend(msg->client, msg);
 }
 
+U0 @compositor_set_z_index(Window *win, I64 index) {
+  if (!win)
+    return;
+  I64 i = 0;
+  @compositor_windows_list *win_index = NULL;
+  @compositor_windows_list *win_list = Compositor.windows->next;
+  @compositor_windows_list *prev = NULL;
+  @compositor_windows_list *next = NULL;
+  while (win_list) {
+    if (win_list->window == win) {
+      win_index = win_list;
+      if (win_index->prev)
+        prev = win_index->prev;
+      if (win_index->next)
+        next = win_index->next;
+      if (prev)
+        prev->next = next;
+      if (next)
+        next->prev = prev;
+      break;
+    }
+    win_list = win_list->next;
+  }
+
+  win_list = Compositor.windows->next;
+  prev = NULL;
+
+  while (win_list) {
+    if (i == index) {
+      prev = win_list->prev;
+      if (prev)
+        prev->next = win_index;
+      win_index->prev = prev;
+      win_index->next = win_list;
+      win_list->prev = win_index;
+      break;
+    }
+    i++;
+    win_list = win_list->next;
+  }
+}
+
+U0 @compositor_set_z_index_send_msg(Window *win, I64 index) {
+  if (!win)
+    return;
+  IpcMessage *msg = CAlloc(sizeof(IpcMessage));
+  msg->client = win->client;
+  msg->type = CPZ_MSG_WIN_SET_Z_INDEX;
+  msg->payload = win;
+  msg->i64 = index;
+  Ipc.MsgSend(Compositor.task, msg);
+}
+
+U0 @compositor_set_wallpaper(Context2D *ctx, U32 mode, U32 background) { // Sets the wallpaper, doesn't Free the Context, you need to Free it after.
+  if(!ctx) {
+    return;
+  }
+  Window *win = Compositor.GetWindowByTitle("Wallpaper");
+  Context2D *tmp = ctx;
+
+  if(!win) { // Please, don't call this if the system isn't initialized 
+    System.Log(Fs, "Trying to set the Wallpaper, but the System isn't initialized completely!");
+    return;
+  }
+
+  if(Display.Width() != ctx->width || Display.Height() != ctx->height) {
+    if(Display.Width() > ctx->width && Display.Height() > ctx->height) { 
+      switch(mode) {
+        case CPZ_WALLPAPER_CENTERED:
+          tmp = NewContext2D(Display.Width(), Display.Height());
+          Fill2D(tmp, background);
+          CopyRect2D(tmp, 
+                    (Display.Width() / 2) - (ctx->width / 2),
+                    (Display.Height() / 2) - (ctx->height / 2),
+                     ctx);
+          break;
+        case CPZ_WALLPAPER_REPEAT:
+          tmp = NewContext2D(Display.Width(), Display.Height());
+          I64 x = 0;
+          I64 y = 0;
+          while(TRUE) {
+            CopyRect2D(tmp, x, y, ctx);
+            x += ctx->width;
+            if(x >= Display.Width()) {
+              x = 0;
+              y += ctx->height;
+              if(y >= Display.Height())
+                break;
+            }
+          }
+          break;
+        case CPZ_WALLPAPER_AUTORESIZE:
+        default:
+          tmp = Scale2D(tmp, Display.Width() / ToF64(ctx->width), Display.Height() / ToF64(ctx->height));
+          break;
+      }
+    } else { 
+      tmp = Scale2D(tmp, Display.Width() / ToF64(ctx->width), Display.Height() / ToF64(ctx->height));
+    }
+  }
+
+  MemCpyU32(win->backing_store->fb, tmp->fb,
+            Display.Width() * Display.Height());
+  if(tmp != ctx) // We don't want to delete the context so it can be reused later (If necessary)
+    DelContext2D(tmp);
+}
+
+U0 @compositor_set_wallpaper_send_msg(Context2D *ctx, U32 mode = CPZ_WALLPAPER_AUTORESIZE, U32 background = Color(0, 0, 0)) {
+  if (!ctx)
+    return;
+  IpcMessage *msg = CAlloc(sizeof(IpcMessage));
+  msg->client = Fs;
+  msg->type = CPZ_MSG_SET_WALLPAPER;
+  msg->payload = ctx;
+  msg->i64.u32[0] = mode;
+  msg->i64.u32[1] = background;
+  Ipc.MsgSend(Compositor.task, msg);
+}
+
 U0 @compositor_ipc_queue_process() {
   Window *win;
   IpcMessage *msg;
@@ -152,6 +281,21 @@ U0 @compositor_ipc_queue_process() {
         win_list = win_list->next;
       }
       break;
+    case CPZ_MSG_WIN_SET_Z_INDEX:
+      @compositor_set_z_index(msg->payload, msg->i64);
+      System.Log(Fs, "Received message ← SetZIndex (%08X, %d)", msg->payload,
+                 msg->i64);
+      Free(msg);
+      break;
+    case CPZ_MSG_SET_WALLPAPER:
+      Context2D *ctx = msg->payload;
+      U32 mode = msg->i64.u32[0];
+      U32 background = msg->i64.u32[1];
+      System.Log(Fs, "Received message ← SetWallpaper (%08X, Mode: %d, Background: %d)", ctx,
+                 mode, background);
+      @compositor_set_wallpaper(ctx, mode, background);
+      Free(msg);
+      break;
     default:
       Free(msg);
       break;
@@ -165,6 +309,18 @@ Window *@compositor_get_window_by_title(U8 *title) {
     if (win_list->window)
       if (!StrCmp(&win_list->window->title, title))
         return win_list->window;
+    win_list = win_list->next;
+  }
+  return NULL;
+}
+
+Window *@compositor_get_window_by_z_index(I64 index) {
+  @compositor_windows_list *win_list = Compositor.windows->next;
+  I64 i = 0;
+  while (win_list) {
+    if (i == index)
+      return win_list->window;
+    i++;
     win_list = win_list->next;
   }
   return NULL;
@@ -193,21 +349,9 @@ Context2D *@compositor_set_theme_pointer(U8 *path, U8 *pointer) {
 U0 @compositor_set_theme_wallpaper(U8 *path) {
   U8 file_path[512];
   StrPrint(&file_path, "%s%s", path, "wallpaper.png");
-  Context2D *wallpaper = PNG.FileToContext2D(file_path);
-  if (wallpaper) {
-    if (wallpaper->width == Compositor.theme.wallpaper->width &&
-        wallpaper->height == Compositor.theme.wallpaper->height) {
-      MemCpyU32(Compositor.theme.wallpaper->fb, wallpaper->fb,
-                Display.Width() * Display.Height());
-    } else {
-      Fill2D(Compositor.theme.wallpaper, 0);
-      CopyRect2D(
-          Compositor.theme.wallpaper,
-          (Compositor.theme.wallpaper->width / 2) - (wallpaper->width / 2),
-          (Compositor.theme.wallpaper->height / 2) - (wallpaper->height / 2),
-          wallpaper);
-    }
-    DelContext2D(wallpaper);
+  Compositor.theme.wallpaper = PNG.FileToContext2D(file_path);
+  if (!Compositor.theme.wallpaper) {
+    Compositor.theme.wallpaper = NewContext2D(Display.Width(), Display.Height());
   }
 }
 
@@ -259,6 +403,17 @@ Bool @compositor_active_win_flag_is_set(U64 flag) {
   return FALSE;
 }
 
+U0 @compositor_set_pointer(Context2D *pointer = NULL) {
+  if (!pointer)
+    pointer = Compositor.theme.pointer.pointer;
+  if (Animation2D.IsAnimation(pointer))
+    Compositor.pointer = Animation2D.Frame(pointer);
+  else
+    Compositor.pointer = pointer;
+  Mouse.PointerSet(Compositor.pointer->fb, Compositor.pointer->width,
+                   Compositor.pointer->height);
+}
+
 U0 @compositor_set_active_window(Window *win) {
   if (!win)
     return;
@@ -305,16 +460,7 @@ U0 @compositor_set_active_window(Window *win) {
   msg->type = CPZ_MSG_WIN_REPAINT;
   msg->payload = win;
   Ipc.MsgSend(msg->client, msg);
-}
-
-U0 @compositor_set_pointer(Context2D *pointer = NULL) {
-  if (!pointer)
-    pointer = Compositor.theme.pointer.pointer;
-  if (Compositor.pointer == pointer)
-    return;
-  Compositor.pointer = pointer;
-  Mouse.PointerSet(Compositor.pointer->fb, Compositor.pointer->width,
-                   Compositor.pointer->height);
+  @compositor_set_pointer();
 }
 
 U0 @compositor_handle_window_resize() {
@@ -323,7 +469,7 @@ U0 @compositor_handle_window_resize() {
   if (Compositor.active_win->signature != WIN_SIGNATURE)
     return;
   if (!(@compositor_active_win_flag_is_set(WIN_FLAGS_RESIZABLE)))
-    return;
+    goto resize_set_pointer;
 
   Bool set_pointer_to_resize = FALSE;
   I64 new_width;
@@ -391,8 +537,32 @@ U0 @compositor_handle_window_resize() {
     }
   }
 
+resize_set_pointer:
+  // FIXME: Move this to @compositor_set_pointer_for_window() or somewhere more
+  // appropriate?
   if (!set_pointer_to_resize) {
-    @compositor_set_pointer();
+    if (Compositor.active_win)
+      if (@gui_window_is_hovered(Compositor.active_win))
+        if (Compositor.active_win->hovered_widget)
+          if (Compositor.active_win->hovered_widget->pointer)
+            @compositor_set_pointer(
+                Compositor.active_win->hovered_widget->pointer);
+          else {
+            if (Compositor.active_win->pointer)
+              @compositor_set_pointer(Compositor.active_win->pointer);
+            else
+              @compositor_set_pointer();
+          }
+        else {
+          if (Compositor.active_win->pointer)
+            @compositor_set_pointer(Compositor.active_win->pointer);
+          else
+            @compositor_set_pointer();
+        }
+      else
+        @compositor_set_pointer();
+    else
+      @compositor_set_pointer();
   }
 }
 
@@ -529,11 +699,10 @@ U0 @compositor_unregister_global_input_event_listener(Window *win) {
   @compositor_remove_global_input_event_listener_from_list(win);
 }
 
-U0 @compositor_handle_window_input_events() {
-  if (!Compositor.active_win)
+U0 @compositor_handle_window_input_events(Window *win) {
+  if (!win)
     return;
 
-  Window *win = Compositor.active_win;
   IpcMessage *msg;
   I64 mouse_x;
   I64 mouse_y;
@@ -567,7 +736,7 @@ U0 @compositor_handle_window_input_events() {
   if (Mouse.z != Compositor.mouse.delta_z) {
     msg = CAlloc(sizeof(IpcMessage));
     System.Log(Fs, "Sent message → WindowMouseWheel");
-    msg->client = Compositor.active_win->client;
+    msg->client = win->client;
     msg->type = CPZ_MSG_WIN_MOUSE_WHEEL;
     msg->payload = win;
     Ipc.MsgSend(msg->client, msg);
@@ -587,7 +756,7 @@ U0 @compositor_handle_window_input_events() {
         msg = CAlloc(sizeof(IpcMessage));
         System.Log(Fs, "Sent message → WindowMouseAt (%dx%d)", mouse_x,
                    mouse_y);
-        msg->client = Compositor.active_win->client;
+        msg->client = win->client;
         msg->type = CPZ_MSG_WIN_MOUSE_AT;
         msg->payload = win;
         Ipc.MsgSend(msg->client, msg);
@@ -610,7 +779,7 @@ U0 @compositor_handle_window_input_events() {
       win->left_btn_down.x = Mouse.x - win->x;
       win->left_btn_down.y = Mouse.y - win->y;
       msg = CAlloc(sizeof(IpcMessage));
-      msg->client = Compositor.active_win->client;
+      msg->client = win->client;
       msg->type = type;
       msg->payload = win;
       Ipc.MsgSend(msg->client, msg);
@@ -632,11 +801,28 @@ U0 @compositor_handle_window_input_events() {
       win->right_btn_down.x = Mouse.x - win->x;
       win->right_btn_down.y = Mouse.y - win->y;
       msg = CAlloc(sizeof(IpcMessage));
-      msg->client = Compositor.active_win->client;
+      msg->client = win->client;
       msg->type = type;
       msg->payload = win;
       Ipc.MsgSend(msg->client, msg);
     }
+  }
+}
+
+U0 @compositor_handle_windows_input_events() {
+  if (Compositor.active_win)
+    @compositor_handle_window_input_events(Compositor.active_win);
+  @compositor_windows_list *win_list = Compositor.windows;
+  Compositor.max_z_index = 0;
+  while (win_list) {
+    if (win_list->window) {
+      if (win_list->window->flags & WIN_FLAGS_MENU &&
+          win_list->window != Compositor.active_win &&
+          Gui.Window.IsVisible(win_list->window))
+        @compositor_handle_window_input_events(win_list->window);
+    }
+    Compositor.max_z_index++;
+    win_list = win_list->next;
   }
 }
 
@@ -694,9 +880,14 @@ U0 @compositor_hide_window(Window *win) {
 U0 @compositor_show_window(Window *win) { @gui_window_show(win); }
 
 Context2D *@compositor_win_select_backing_store(Window *win) {
+  I64 iterations = 0;
   while (Compositor.in_resize && win == Compositor.active_win &&
          (win->width != win->backing_store->width ||
-          win->height != win->backing_store->height)) {
+          win->height != win->backing_store->height) &&
+         iterations < 64) {
+    iterations++;
+    if (!(iterations % 8))
+      @compositor_refresh(win);
     Sleep(1);
   }
   return win->backing_store;
@@ -788,7 +979,11 @@ U0 @compositor_init() {
   Compositor.menubar.task = NULL;
   Compositor.menubar.title = NULL;
   Compositor.next_id = 0;
-  Compositor.theme.wallpaper = NewContext2D(Display.Width(), Display.Height());
+  Compositor.session.user.uid = 1;
+  StrCpy(&Compositor.session.home, "/home/alec");
+  StrCpy(&Compositor.session.hostname, "erythros");
+  StrCpy(&Compositor.session.user.name, "alec");
+  StrCpy(&Compositor.session.user.fullname, "Alec Murphy");
   @compositor_set_theme("Umami");
   @compositor_set_pointer();
 }
@@ -821,8 +1016,8 @@ U0 @compositor_task() {
     // Handle global input events
     @compositor_handle_global_input_events();
 
-    // Handle window input events
-    @compositor_handle_window_input_events();
+    // Handle windows input events
+    @compositor_handle_windows_input_events();
 
     // Reset input event timestamps
     @compositor_reset_input_event_timestamps();
@@ -831,7 +1026,7 @@ U0 @compositor_task() {
     @compositor_blit_window_backing_stores();
 
     // Draw Mouse Pointer (if no mouse integration).
-    if (!Mouse.Update)
+    if (!Mouse.Update || Mouse.integration_type == MI_QEMU)
       Blot2D(Compositor.ctx, Mouse.X(), Mouse.Y(), Compositor.pointer);
 
     // Debug stuff
@@ -897,14 +1092,18 @@ U0 @compositor_task() {
     Compositor.mouse.left = Mouse.left;
     Compositor.mouse.right = Mouse.right;
 
+    if (Display.Update)
+      Display.Update();
     Sleep(1);
   }
 }
 
 Gui.Window.Refresh = &@compositor_refresh;
 Gui.Window.SetFocus = &@compositor_set_active_window;
+Gui.Window.SetZIndex = &@compositor_set_z_index_send_msg;
 
 Compositor.GetWindowByTitle = &@compositor_get_window_by_title;
+Compositor.GetWindowByZIndex = &@compositor_get_window_by_z_index;
 Compositor.Init = &@compositor_init;
 Compositor.CreateWindow = &@compositor_create_window;
 Compositor.DestroyWindow = &@compositor_destroy_window;
@@ -915,5 +1114,6 @@ Compositor.ShowWindow = &@compositor_show_window;
 Compositor.Task = &@compositor_task;
 Compositor.UnregisterForGlobalInputEvents =
     &@compositor_unregister_global_input_event_listener;
+Compositor.SetWallpaper = &@compositor_set_wallpaper_send_msg;
 
 "compositor ";

@@ -2,6 +2,19 @@ StrCpy(Fs->task_name,"");
 StrCpy(Fs->task_title,"");
 // Settings
 #include "Settings";
+
+#define GP_TX_PORT 0x0378
+#define GP_RX_PORT 0x0379
+
+#define GP_SNES_DELAY 0
+
+#define GP_SNES_POWER 0xFC
+#define GP_SNES_CLOCK 0x01
+#define GP_SNES_LATCH 0x02
+
+U8 gp_data[16];
+I64 gp_ctr;
+
 I64 keyCtr=0;
 I64 sc=0;
 I64 ROMSize=0;
@@ -9,6 +22,51 @@ I64 bgp3,bgp2,bgp1,bgp0;
 I64 obp03,obp02,obp01,obp00;
 I64 obp13,obp12,obp11,obp10;
 I64 jp_state[8];
+
+I64 exitApp=0;
+
+I64 tdCtr=0;
+I64 apuCtr=0;
+I64 apuToggle=1;
+
+I64 kLoad=0;
+I64 kReset=0;
+I64 kSave=0;
+I64 kSnd=0;
+I64 soundMode=2;
+
+I64 DisplayMsgTicks=0;
+U8 DisplayMsg[32];
+StrCpy(DisplayMsg,"");
+
+U8 StateFile[512];
+
+U0 SetLCDScale()
+{
+  switch(LCDScale)
+  {
+    case 1:
+      Fs->win_left   =0x1F; 
+      Fs->win_right  =0x32;
+      Fs->win_top    =0x15; 
+      Fs->win_bottom =0x26;
+      break;
+    case 2:
+      Fs->win_left   =0x15; 
+      Fs->win_right  =0x3C;
+      Fs->win_top    =0x0D; 
+      Fs->win_bottom =0x30;
+      break;
+    case 3:
+      Fs->win_left   =0x0A; 
+      Fs->win_right  =0x45;
+      Fs->win_top    =0x03; 
+      Fs->win_bottom =0x38;
+      break;
+    default:
+      break;
+  };
+}
 
 U0 SetPal(U8 p, I64 *c0, I64 *c1, I64 *c2, I64 *c3)
 {
@@ -119,7 +177,7 @@ mc_ctr = 0xFF00;
 while(mc_ctr<0xFFFF) { memory[mc_ctr]=0; mc_ctr++; };
 
 //Switchable RAM (Used by games for more RAM) for the main memory range 0xA000 - 0xC000.
-I64 MBCRam[0x10000];
+I64 MBCRam[0x20000];
 //MBC1 Type (4/32, 16/8)
 Bool MBC1Mode = FALSE;
 //MBC RAM Access Control.
@@ -234,7 +292,7 @@ Bool spritePriorityEnabled = TRUE;
 I64 tileReadState[tileCount];
 for(arrayCtr=0;arrayCtr<tileCount;arrayCtr++) { tileReadState[arrayCtr]=0;};
 
-I64 windowSourceLine = 0;
+//I64 windowSourceLine = 0;
 //"Classic" GameBoy palette colors.
 I64 colors[4] = {0x80EFFFDE, 0x80ADD794, 0x80529273, 0x80183442};
 //Frame skip tracker
@@ -650,7 +708,7 @@ U0 memoryWrite(I64 address, I64 data)
                 currMBCRAMBank = data & 0x03;
                 currMBCRAMBankPosition = (currMBCRAMBank << 13) - 0xA000;
             } else {
-                //We might have encountered illegal RAM writing or such, so just do nothing...
+                //We might have encountered illegal RAM writing or such, so just do nothing...
             }
         } else {
             //We might have encountered illegal RAM writing or such, so just do nothing...
@@ -661,15 +719,6 @@ U0 memoryWrite(I64 address, I64 data)
         if (modeSTAT < 3) {
             // Bkg Tile data area
             if (address < 0x9800) {
-                //I64 tileIndex = ((address - 0x8000) >> 4);
-                //if (tileReadState[tileIndex] == 1) {
-                //    I64 r = count(tileData) - tileCount + tileIndex;
-                //    do {
-                //        tileData[r] = null;
-                //        r -= tileCount;
-                //    } while (r >= 0);
-                //    tileReadState[tileIndex] = 0;
-                //}
             }
             memory[address] = data;
         }
@@ -868,6 +917,102 @@ U0 memoryWrite(I64 address, I64 data)
     }
 }
 
+U0 initEmulator()
+{
+    programCounter = 0x100;
+    stackPointer = 0xFFFE;
+    IME = TRUE;
+    LCDTicks = 15;
+    DIVTicks = 14;
+    registerA = 0x1;
+    registerB = 0;
+    registerC = 0x13;
+    registerD = 0;
+    registerE = 0xD8;
+    FZero = TRUE;
+    FSubtract = FALSE;
+    FHalfCarry = TRUE;
+    FCarry = TRUE;
+    registersHL = 0x014D;
+}
+
+#include "GamePad";
+#include "Keyboard";        
+
+U0 saveState()
+{
+    U8 *statebuf=CAlloc(2048*1024);
+    I64 *cpustate=CAlloc(21*sizeof(I64));
+    U8 *cpubuf=cpustate;
+    U8 *mem=&memory;
+    U8 *mbc=&MBCRam;
+    cpustate[0]=programCounter;
+    cpustate[1]=stackPointer;
+    cpustate[2]=LCDTicks;
+    cpustate[3]=DIVTicks;
+    cpustate[4]=registerA;
+    cpustate[5]=registerB;
+    cpustate[6]=registerC;
+    cpustate[7]=registerD;
+    cpustate[8]=registerE;
+    cpustate[9]=registersHL;
+    cpustate[10]=currMBCRAMBank;
+    cpustate[11]=currMBCRAMBankPosition;
+    cpustate[12]=ROMBank1offs;
+    cpustate[13]=currentROMBank;
+    cpustate[14]=MBC1Mode;
+    cpustate[15]=MBCRAMBanksEnabled;
+    cpustate[16]=IME;
+    cpustate[17]=FZero;
+    cpustate[18]=FSubtract;
+    cpustate[19]=FHalfCarry;
+    cpustate[20]=FCarry;
+    MemCpy(statebuf,cpubuf,(21*sizeof(I64)));
+    MemCpy(statebuf+(21*sizeof(I64)),mem,sizeof(memory));
+    MemCpy(statebuf+(21*sizeof(I64))+sizeof(memory),mbc,sizeof(MBCRam));
+    FileWrite(StateFile,statebuf,(2048*1024));
+    Free(cpustate);
+    Free(statebuf);
+    cpubuf=0;
+}
+
+U0 loadState()
+{
+    I64 toBool;
+    U8 *buf=FileRead(StateFile);
+    MemCpy(&programCounter,buf+(8*0),8);
+    MemCpy(&stackPointer,buf+(8*1),8);
+    MemCpy(&LCDTicks,buf+(8*2),8);
+    MemCpy(&DIVTicks,buf+(8*3),8);
+    MemCpy(&registerA,buf+(8*4),8);
+    MemCpy(&registerB,buf+(8*5),8);
+    MemCpy(&registerC,buf+(8*6),8);
+    MemCpy(&registerD,buf+(8*7),8);
+    MemCpy(&registerE,buf+(8*8),8);
+    MemCpy(&registersHL,buf+(8*9),8);
+    MemCpy(&currMBCRAMBank,buf+(8*10),8);
+    MemCpy(&currMBCRAMBankPosition,buf+(8*11),8);
+    MemCpy(&ROMBank1offs,buf+(8*12),8);
+    MemCpy(&currentROMBank,buf+(8*13),8);
+    MemCpy(&toBool,buf+(8*14),8);
+    MBC1Mode=toBool;
+    MemCpy(&toBool,buf+(8*15),8);
+    MBCRAMBanksEnabled=toBool;
+    MemCpy(&toBool,buf+(8*16),8);
+    IME=toBool;
+    MemCpy(&toBool,buf+(8*17),8);
+    FZero=toBool;
+    MemCpy(&toBool,buf+(8*18),8);
+    FSubtract=toBool;
+    MemCpy(&toBool,buf+(8*19),8);
+    FHalfCarry=toBool;
+    MemCpy(&toBool,buf+(8*20),8);
+    FCarry=toBool;
+    MemCpy(&memory,buf+(21*sizeof(I64)),sizeof(memory));
+    MemCpy(&MBCRam,buf+(21*sizeof(I64))+sizeof(memory),sizeof(MBCRam));
+    Free(buf);
+}
+
 U0 runInterrupt()
 {
     bitShift = 0;
@@ -891,12 +1036,26 @@ U0 runInterrupt()
         }
         testbit = 1 << ++bitShift;
     }
+
+    tdCtr=0;
+    while(tdCtr<frameDelay) { tdCtr++; };
 }
 
 // #include "LCD";
 
 U0 updateCore()
 {
+    if (apuToggle==1)
+    {
+      apuCtr++;
+      if(apuCtr>2000)
+      {
+        memory[0xFEED]++;
+        if(memory[0xFEED]>1) { memory[0xFEED]=0; };
+        apuCtr=0;
+      };
+    };
+
     // DIV control
     DIVTicks += CPUTicks;
     if (DIVTicks >= 0x40) {
@@ -907,6 +1066,10 @@ U0 updateCore()
     I64 timedTicks = CPUTicks / multiplier;
     // LCD Timing
     LCDTicks += timedTicks; //LCD timing
+    // Display Message Timer
+    if (DisplayMsgTicks>0) { DisplayMsgTicks++; };
+    if (DisplayMsgTicks>1000000) { DisplayMsgTicks=0; };
+
     scanLine(actualScanLine); //Scan Line and STAT Mode Control
     //Audio Timing
     audioTicks += timedTicks; //Not the same as the LCD timing (Cannot be altered by display on/off changes!!!).
@@ -916,9 +1079,19 @@ U0 updateCore()
         //Emulator Timing (Timed against audio for optimization):
         emulatorTicks += audioTicks;
         if (emulatorTicks >= machineCyclesPerLoop) {
+        if (useGamePad==TRUE)
+        {
+          updateGamePad;
+        };
+        if (useKeyboard==TRUE)
+        {
+          sc=InU8(0x60);
+          updateKeyboard;
+        };
+
                 //LCD off takes at least 2 frames.
                 if (drewBlank == 0) {
-                    sc=InU8(0x60);
+                    renderWIN;
                     renderSprites; 
                     drawFrameBuffer;
                 };
@@ -961,7 +1134,7 @@ U0 executeIteration()
 
     //Iterate the interpreter loop:
     I64 op = 0;
-    while (sc!=1) {
+    while (exitApp!=1) {
         //Fetch the current opcode.
         op = memoryRead(programCounter);
         if (!skipPCIncrement) {
@@ -988,70 +1161,173 @@ U0 executeIteration()
         }
         //Timing:
         updateCore;
-        //Keyboard
-        
-        switch(sc) {
-            case 0x4D:
-                joyPadState(0,TRUE);
-                joyPadState(1,FALSE);
-                break;
-            case 0x4B:
-                joyPadState(1,TRUE);
-                joyPadState(0,FALSE);
-                break;
-            case 0x48:
-                joyPadState(2,TRUE);
-                joyPadState(3,FALSE);
-                break;
-            case 0x50:
-                joyPadState(3,TRUE);
-                joyPadState(2,FALSE);
-                break;
-            case 0x1F:
-                joyPadState(4,TRUE);
-                break;
-            case 0x1E:
-                joyPadState(5,TRUE);
-                break;
-            case 0x2A:
-                joyPadState(6,TRUE);
-                break;
-            case 0x1C:
-                joyPadState(7,TRUE);
-                break;
-            case 0x4D + 0x80:
-                joyPadState(0,FALSE);
-                break;
-            case 0x4B + 0x80:
-                joyPadState(1,FALSE);
-                break;
-            case 0x48 + 0x80:
-                joyPadState(2,FALSE);
-                break;
-            case 0x50 + 0x80:
-                joyPadState(3,FALSE);
-                break;
-            case 0x1F + 0x80:
-                joyPadState(4,FALSE);
-                break;
-            case 0x1E + 0x80:
-                joyPadState(5,FALSE);
-                break;
-            case 0x2A + 0x80:
-                joyPadState(6,FALSE);
-                break;
-            case 0x1C + 0x80:
-                joyPadState(7,FALSE);
-                break;
-            default:
-                break;
+
+        if (gp_data[7]==0)          
+        {
+          jp_state[0]=FALSE;
+        }
+        else
+        {
+          jp_state[0]=TRUE;
+        };
+        if (gp_data[6]==0)          
+        {
+          jp_state[1]=FALSE;
+        }
+        else
+        {
+          jp_state[1]=TRUE;
+        };
+        if (gp_data[4]==0)          
+        {
+          jp_state[2]=FALSE;
+        }
+        else
+        {
+          jp_state[2]=TRUE;
+        };
+        if (gp_data[5]==0)          
+        {
+          jp_state[3]=FALSE;
+        }
+        else
+        {
+          jp_state[3]=TRUE;
+        };
+
+        if (gp_data[0]==0)          
+        {
+          jp_state[4]=FALSE;
+        }
+        else
+        {
+          jp_state[4]=TRUE;
+        };
+        if (gp_data[1]==0)          
+        {
+          jp_state[5]=FALSE;
+        }
+        else
+        {
+          jp_state[5]=TRUE;
+        };
+        if (gp_data[2]==0)          
+        {
+          jp_state[6]=FALSE;
+        }
+        else
+        {
+          jp_state[6]=TRUE;
+        };
+        if (gp_data[3]==0)          
+        {
+          jp_state[7]=FALSE;
+        }
+        else
+        {
+          jp_state[7]=TRUE;
         };
 
         for (keyCtr=0;keyCtr<8;keyCtr++) {
           joyPadEvent(keyCtr,jp_state[keyCtr]);
         };
-        
+
         Sleep(0);
+        
+        if (gp_data[10]!=0)
+        {
+          exitApp=1;
+        };
+
+        if (gp_data[11]!=0)
+        {
+          if(!kLoad)
+          {
+            kLoad=1;
+            if (FileFind(StateFile)) {
+              StrCpy(DisplayMsg,"State Loaded");
+              DisplayMsgTicks=1;
+              initEmulator;
+              loadState;
+            } else {
+              StrCpy(DisplayMsg,"No State Found");
+              DisplayMsgTicks=1;
+            };          
+          };
+        }
+        else
+        {
+          kLoad=0;
+        };
+
+        if (gp_data[9]!=0)
+        {
+          if(!kSave) {
+            kSave=1;
+            StrCpy(DisplayMsg,"State Saved");
+            DisplayMsgTicks=1;
+            saveState;
+          };
+        }
+        else
+        {
+          kSave=0;
+        };
+
+        if (gp_data[8]!=0)
+        {
+          if(!kSnd) {
+            kSnd=1;
+            soundMode++;
+            if (soundMode>3)
+            {
+              soundMode=0;
+            };
+
+            if (soundMode==0)
+            {
+              StrCpy(DisplayMsg,"Snd Ch01");
+            };
+            if (soundMode==1)
+            {
+              StrCpy(DisplayMsg,"Snd Ch02");
+            };
+            if (soundMode==2)
+            {
+              StrCpy(DisplayMsg,"Snd Auto");
+            };
+            if (soundMode==3)
+            {
+              StrCpy(DisplayMsg,"Snd Off");
+            };
+
+            DisplayMsgTicks=1;
+          };
+        }
+        else
+        {
+          kSnd=0;
+        };
+
+        if (soundMode==0)
+        {
+          apuToggle=0;
+          memory[0xFEED]=0;
+        };
+        if (soundMode==1)
+        {
+          apuToggle=0;
+          memory[0xFEED]=1;
+        };
+        if (soundMode==2)
+        {
+          apuToggle=1;
+        };
+        if (soundMode==3)
+        {
+          memory[0xFEED]=128;
+          apuToggle=0;
+        };
     };
 }
 
@@ -1084,25 +1360,6 @@ U0 runEmulator()
     }
 }
 
-U0 initEmulator()
-{
-    programCounter = 0x100;
-    stackPointer = 0xFFFE;
-    IME = TRUE;
-    LCDTicks = 15;
-    DIVTicks = 14;
-    registerA = 0x1;
-    registerB = 0;
-    registerC = 0x13;
-    registerD = 0;
-    registerE = 0xD8;
-    FZero = TRUE;
-    FSubtract = FALSE;
-    FHalfCarry = TRUE;
-    FCarry = TRUE;
-    registersHL = 0x014D;
-}
-
 U0 initLCD()
 {
 }
@@ -1110,40 +1367,71 @@ U0 initLCD()
 
 #include "Cartridge";
 
+U0 setupRAMBanks()
+{
+  if (cMBC2) {
+    numRAMBanks = 1 / 16;
+  } else if (cMBC1 || cRUMBLE || cMBC3 || cHuC3) {
+    numRAMBanks = 4;
+  } else if (cMBC5) {
+    numRAMBanks = 16;
+  } else if (cSRAM) {
+    numRAMBanks = 1;
+  }
+};
+
+#include "Sound";
+
 U0 start()
 {
     for (keyCtr=0;keyCtr<8;keyCtr++) {
       jp_state[keyCtr]=0;
     };
+
+    gp_ctr=0;
+    while(gp_ctr<12)
+    {
+      gp_data[gp_ctr]=0;
+      gp_ctr++;
+    };
+    gp_ctr=0;
+
     SettingsPush;
     DocClear;
     DCFill(lcd,15);
-    Fs->win_left   =0x24; 
-    Fs->win_right  =0x37;
-    Fs->win_top    =0x10; 
-    Fs->win_bottom =0x21;
+    SetLCDScale;
     stopEmulator=1;
     initEmulator;
     frameskipAmount = 0; //Reset the frame skip setting.
     initCart; // init cartridge bank type
+    setupRAMBanks;
     initLCD; // init LCD
+    memory[0xFEED]=1;
+    CTask *snd_task=Spawn(&GBSoundTask,&memory,,2);
     // BG Palette $$FF47 
     SetPal(memory[0xFF47],&bgp0,&bgp1,&bgp2,&bgp3);
     // OBP0 Palette $$FF48 
     SetPal(memory[0xFF48],&obp00,&obp01,&obp02,&obp03);
     // OBP1 Palette $$FF49 
     SetPal(memory[0xFF49],&obp10,&obp11,&obp12,&obp13);
+    StrCpy(DisplayMsg,"ROM Loaded");
+    DisplayMsgTicks=1;
     runEmulator; //Start the emulation.
     FreeLCD;
     Free(ROM);
     Fs->draw_it=NULL;    
     DCFill;
     SettingsPop;
+    CherubExit=TRUE;
+    Kill(snd_task);
+    SndRst;
     Kill(Fs);
 }
 
 U0 Run(U8 *rom_file)
 {
     ROM=FileRead(rom_file,&ROMSize);
+    StrCpy(StateFile,rom_file);
+    StrCpy(StateFile+StrLen(StateFile)-3,".STA.Z");
     start;
 }

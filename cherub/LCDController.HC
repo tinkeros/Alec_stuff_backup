@@ -13,17 +13,9 @@ U0 matchLYC()
 }
 U0 notifyScanline()
 {
-    if (actualScanLine == 0) {
-        windowSourceLine = 0;
-    }
-    // determine the left edge of the window (160 if window is inactive) **not implemented yet**
-    I64 windowLeft = t((gfxWindowDisplay && memory[0xFF4A] <= actualScanLine),ToI64(Min(160, memory[0xFF4B] - 7)),160);
 
     renderBG_ScanLine;
-
-    if (windowLeft < 160) {
-        ++windowSourceLine;
-    }
+    //renderWIN_ScanLine;
 }
 
 U0 scanLineMode0()
@@ -141,6 +133,7 @@ U0 scanLine(I64 line)
         } else {
             //VBlank Ending (We're on the last actual scan line)
             if (memory[0xFF44] == 153) {
+
                 memory[0xFF44] = 0; //LY register resets to 0 early.
                 matchLYC; //LY==LYC Test is early here (Fixes specific one-line glitches (example: Kirby2 intro)).
             }
@@ -157,3 +150,4 @@ U0 scanLine(I64 line)
         }
     }
 }
+

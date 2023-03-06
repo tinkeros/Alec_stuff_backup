@@ -1,6 +1,7 @@
+Adam("I64 CherubExit=FALSE;");
 CTask *cherub;
-U8 RunCmd[1024];
-U8 RomList[8192];
+U8 *RunCmd=CAlloc(1024);
+U8 *RomList=CAlloc(65536);
 
 I64 pos=0;
 CDirEntry *rom_f;
@@ -18,14 +19,12 @@ while (rom_f)
 
 I64 rom_i = PopUpPickLst(RomList);
 
-"%d\n",rom_i;
-
 I64 incr=0;
 rom_f=roms;
 
 if (rom_i>-1)
 {
-  while (incr<rom_i)
+  while (incr<rom_i)
   {
     rom_f=rom_f->next;
     incr++;
@@ -36,8 +35,11 @@ if (rom_i>-1)
   WinFocus(Fs);
   Sleep(100);
   WinFocus(cherub);
+  while (!CherubExit) { Sleep(1); };
 };
 
 DirEntryDel(roms);
+Free(RomList);
+Free(RunCmd);
 rom_f=NULL;
 

@@ -1,0 +1,311 @@
+#!/usr/bin/python
+import datetime
+import clipboard
+import glob
+import json
+import logging
+import os
+import socket
+import subprocess
+import sys
+import time
+import urllib
+import urlparse
+import uuid
+
+def builtin(data):
+    if data == HGC_NOOP:
+        conn.send(chr(HGC_NOOP))
+    if data == HGC_CDH:
+        HGCCdH()
+    if data == HGC_COPYG:
+        HGCCopyG()
+    if data == HGC_COPYH:
+        HGCCopyH()
+    if data == HGC_DELH:
+        HGCDelH()
+    if data == HGC_DIRCURH:
+        HGCDirCurH()
+    if data == HGC_DIRH:
+        HGCDirH()
+    if data == HGC_GETURL:
+        HGCGetURL()
+    if data == HGC_HCOPY:
+        HGCHCopy()
+    if data == HGC_HPASTE:
+        HGCHPaste()
+    if data == HGC_SCREENSHOT:
+        HGCScreenShot()
+
+def ZeroParamBuf():
+    os.lseek(HGBD,0,os.SEEK_SET)
+    os.write(HGBD, '\x00'*BLK_SIZE)
+
+def HGCCdH():
+    os.lseek(HGBD,0,os.SEEK_SET)
+    HGBD_PARAM_BUF = os.read(HGBD,BLK_SIZE)
+    pathname = HGBD_PARAM_BUF[:HGBD_PARAM_BUF.find('\x00')]
+    ZeroParamBuf()
+    os.lseek(HGBD,0,os.SEEK_SET)
+    c_pathname = ''
+    if pathname[:1] != '/':
+        c_pathname = HGBD_CONF["hgfs_path"]+"/"+pathname
+    else:
+        c_pathname = pathname
+    if os.path.isdir(c_pathname):
+        newpath = subprocess.Popen('cd "' + c_pathname + '"; pwd',shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE).communicate()[0][:-1]
+        HGBD_CONF["hgfs_path"] = newpath
+        os.write(HGBD,str(1))
+        logger.info("change host directory " + HGBD_CONF["hgfs_path"])
+    else:
+        os.write(HGBD,str(0))
+        logger.error("host path not found " + pathname)
+    conn.send(chr(HGC_CDH))
+
+def HGCCopyG():
+    os.lseek(HGBD,0,os.SEEK_SET)
+    HGBD_PARAM_BUF = os.read(HGBD,BLK_SIZE)
+    filename = HGBD_PARAM_BUF[:HGBD_PARAM_BUF.find('\x00')]
+    try:
+        filedata = open(HGBD_CONF["hgfs_path"]+"/"+filename,"rb").read()
+        if filename[-2:].upper()==".Z":
+            tmp_z_file = "/tmp/" + str(uuid.uuid4()).split('-')[0].upper() + ".Z"
+            while os.path.exists(tmp_z_file):
+                tmp_z_file = "/tmp/" + str(uuid.uuid4()).split('-')[0].upper() + ".Z"
+            open(tmp_z_file,"wb").write(filedata)
+            os.system('tosz "' + tmp_z_file + '"')
+            filedata = open(tmp_z_file.split('.Z')[0],"rb").read()
+            os.remove(tmp_z_file.split('.Z')[0])
+        filesize = len(filedata)
+        ZeroParamBuf()
+        os.lseek(HGBD,0,os.SEEK_SET)
+        os.write(HGBD,str(filesize))
+        os.lseek(HGBD,BLK_SIZE,os.SEEK_SET)
+        os.write(HGBD,filedata)
+        logger.info("sent file " + filename)
+    except:
+        filesize = -1
+        ZeroParamBuf()
+        os.lseek(HGBD,0,os.SEEK_SET)
+        os.write(HGBD,str(filesize))
+        logger.error("file not found " + filename)
+    conn.send(chr(HGC_COPYG))
+
+def HGCCopyH():
+    os.lseek(HGBD,0,os.SEEK_SET)
+    HGBD_PARAM_BUF = os.read(HGBD,BLK_SIZE)
+    filename = HGBD_PARAM_BUF[8:HGBD_PARAM_BUF.find('\x00',9)]
+    filesize = 0
+    fsincr = 0
+    while fsincr<8:
+        fsbyte = ord(HGBD_PARAM_BUF[fsincr:fsincr+1])
+        filesize += fsbyte*(256**fsincr)
+        fsincr += 1
+    os.lseek(HGBD,BLK_SIZE,os.SEEK_SET)
+    if filename[-2:].upper()==".Z":
+        open(HGBD_CONF["hgfs_path"]+"/"+filename[:-2],"wb").write(os.read(HGBD,filesize))
+        SetHGFSPerms(HGBD_CONF["hgfs_path"]+"/"+filename[:-2])
+    else:
+        open(HGBD_CONF["hgfs_path"]+"/"+filename,"wb").write(os.read(HGBD,filesize))
+        SetHGFSPerms(HGBD_CONF["hgfs_path"]+"/"+filename)
+    logger.info("received file " + filename)
+    conn.send(chr(HGC_COPYH))
+
+def HGCScreenShot():
+    os.lseek(HGBD,0,os.SEEK_SET)
+    HGBD_PARAM_BUF = os.read(HGBD,BLK_SIZE)
+    filesize = 0
+    fsincr = 0
+    while fsincr<8:
+        fsbyte = ord(HGBD_PARAM_BUF[fsincr:fsincr+1])
+        filesize += fsbyte*(256**fsincr)
+        fsincr += 1
+    tmp_file = "/tmp/" + str(uuid.uuid4()) + ".bmp"
+    while os.path.exists(tmp_file):
+        tmp_file = "/tmp/" + str(uuid.uuid4()) + ".bmp"
+    os.lseek(HGBD,BLK_SIZE,os.SEEK_SET)
+    open(tmp_file,"wb").write(os.read(HGBD,filesize))
+    ts = str(datetime.datetime.now())
+    screenshot_file = HGBD_CONF["screenshot_path"]+"/"+ts[:19].replace(' ','-').replace(':','-') + '.png'
+    os.system('gm convert "' + tmp_file + '" -colors 16 "' + screenshot_file + '"')
+    SetHGFSPerms(screenshot_file)
+    os.remove(tmp_file)
+    logger.info("screenshot " + screenshot_file)
+    conn.send(chr(HGC_SCREENSHOT))
+
+def HGCDelH():
+    os.lseek(HGBD,0,os.SEEK_SET)
+    HGBD_PARAM_BUF = os.read(HGBD,BLK_SIZE)
+    filename = HGBD_PARAM_BUF[:HGBD_PARAM_BUF.find('\x00')]
+    ZeroParamBuf()
+    os.lseek(HGBD,0,os.SEEK_SET)
+    try:
+        os.remove(HGBD_CONF["hgfs_path"]+"/"+filename)
+        os.write(HGBD,str(1))
+        logger.info("delete host file " + filename)
+    except:
+        os.write(HGBD,str(0))
+        logger.error("delete host file not found " + filename)
+    conn.send(chr(HGC_DELH))
+
+def HGCDirCurH():
+    ZeroParamBuf()
+    os.lseek(HGBD,0,os.SEEK_SET)
+    os.write(HGBD,HGBD_CONF["hgfs_path"])
+    logger.info("get host current directory " + HGBD_CONF["hgfs_path"])
+    conn.send(chr(HGC_DIRCURH))
+
+def HGCDirH():
+    dirdata = ''
+    dirdata += '$MA,"Directory",LM=""$ of Host:' + HGBD_CONF["hgfs_path"] + '\n'
+    dirdata += 'DATE_ TIME_     SIZE\n'
+    bsize = "{0:#0{1}x}".format(0,10)[2:].upper()
+    f = HGBD_CONF["hgfs_path"]+"/."
+    ts = str(datetime.datetime.fromtimestamp(os.path.getmtime(f)))
+    dirdata += ts[5:10].replace('-','/') + ' ' + ts[11:16] + ' ' + bsize + ' $MA,"' + os.path.basename(f) + '",LM="CdH(\\"' + os.path.basename(f) + '\\");DirH;\\n"$\n'
+    f = HGBD_CONF["hgfs_path"]+"/.."
+    ts = str(datetime.datetime.fromtimestamp(os.path.getmtime(f)))
+    dirdata += ts[5:10].replace('-','/') + ' ' + ts[11:16] + ' ' + bsize + ' $MA,"' + os.path.basename(f) + '",LM="CdH(\\"' + os.path.basename(f) + '\\");DirH;\\n"$\n'
+    direntries = 2
+    for f in sorted(glob.glob(HGBD_CONF["hgfs_path"]+"/*")):
+        direntries += 1
+        ts = str(datetime.datetime.fromtimestamp(os.path.getmtime(f)))
+        size = os.path.getsize(f)
+        bsize = "{0:#0{1}x}".format(size,10)[2:].upper()
+        if os.path.isdir(f):
+            bsize = "{0:#0{1}x}".format(0,10)[2:].upper()
+            dirdata += ts[5:10].replace('-','/') + ' ' + ts[11:16] + ' ' + bsize + ' $MA,"' + os.path.basename(f) + '",LM="CdH(\\"' + os.path.basename(f) + '\\");DirH;\\n"$\n'
+        else:
+            dirdata += ts[5:10].replace('-','/') + ' ' + ts[11:16] + ' ' + bsize + ' $MA,"' + os.path.basename(f) + '",LM="CopyG(\\"' + os.path.basename(f) + '\\");\\n"$\n'
+    dirsize = len(dirdata)
+    ZeroParamBuf()
+    os.lseek(HGBD,0,os.SEEK_SET)
+    os.write(HGBD,str(direntries))
+    os.lseek(HGBD,128,os.SEEK_SET)
+    os.write(HGBD,str(dirsize))
+    os.lseek(HGBD,BLK_SIZE,os.SEEK_SET)
+    os.write(HGBD,dirdata)
+    logger.info("list directory")
+    conn.send(chr(HGC_DIRH))
+
+def HGCGetURL():
+    os.lseek(HGBD,0,os.SEEK_SET)
+    HGBD_PARAM_BUF = os.read(HGBD,BLK_SIZE)
+    url_comp = urlparse.urlparse(HGBD_PARAM_BUF[:HGBD_PARAM_BUF.find('\x00')])
+    url = url_comp.scheme + "://" + url_comp.netloc + urllib.quote(url_comp.path)
+    filedata = subprocess.Popen('wget -q -O - -U "" "' + url + '" 2>/dev/null', shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE).communicate()[0]
+    if url[-2:].upper()==".Z":
+        tmp_z_file = "/tmp/" + str(uuid.uuid4()).split('-')[0].upper() + ".Z"
+        while os.path.exists(tmp_z_file):
+            tmp_z_file = "/tmp/" + str(uuid.uuid4()).split('-')[0].upper() + ".Z" 
+        open(tmp_z_file,"wb").write(filedata)
+        os.system('tosz "' + tmp_z_file + '"')
+        filedata = open(tmp_z_file.split('.Z')[0],"rb").read()
+        os.remove(tmp_z_file.split('.Z')[0])
+    filesize = len(filedata)
+    if filesize>0:
+        ZeroParamBuf()
+        os.lseek(HGBD,0,os.SEEK_SET)
+        os.write(HGBD,str(filesize))
+        os.lseek(HGBD,BLK_SIZE,os.SEEK_SET)
+        os.write(HGBD,filedata)
+        logger.info("WGet " + url)
+    else:
+        filesize = -1
+        ZeroParamBuf()
+        os.lseek(HGBD,0,os.SEEK_SET)
+        os.write(HGBD,str(filesize))
+        logger.error("error reading url " + url)
+    conn.send(chr(HGC_GETURL))
+
+def HGCHCopy():
+    os.lseek(HGBD,0,os.SEEK_SET)
+    HGBD_PARAM_BUF = os.read(HGBD,BLK_SIZE)
+    filesize = 0
+    fsincr = 0
+    while fsincr<8:
+        fsbyte = ord(HGBD_PARAM_BUF[fsincr:fsincr+1])
+        filesize += fsbyte*(256**fsincr)
+        fsincr += 1
+    os.lseek(HGBD,BLK_SIZE,os.SEEK_SET)
+    clip = os.read(HGBD,filesize)
+    clipboard.copy(clip[clip.find('"')+1:clip.rfind('"')])
+    logger.info("copy clipboard to host")
+    conn.send(chr(HGC_HCOPY))
+
+def HGCHPaste():
+    filedata = clipboard.paste()
+    filedata = filedata.replace('$','$$')
+    filesize = len(filedata)
+    ZeroParamBuf()
+    os.lseek(HGBD,0,os.SEEK_SET)
+    os.write(HGBD,str(filesize))
+    os.lseek(HGBD,BLK_SIZE,os.SEEK_SET)
+    os.write(HGBD,filedata)
+    logger.info("paste clipboard to guest")
+    conn.send(chr(HGC_HPASTE))
+
+def SetHGFSPerms(file):
+    os.system('chown ' + HGBD_CONF["user"] + ':' + HGBD_CONF["user"] + ' "' + file + '"')
+
+BLK_SIZE = 512
+
+HGC_CDH = 0x08
+HGC_COPYG = 0x01
+HGC_COPYH = 0x02
+HGC_SCREENSHOT = 0x03
+HGC_DELH = 0x07
+HGC_DIRCURH = 0x09
+HGC_DIRH = 0x04
+HGC_GETURL = 0x05
+HGC_GETURLSTR = 0x06
+HGC_HCOPY = 0x0A
+HGC_HPASTE = 0x0B
+HGC_NOOP = 0xFF
+
+HGBD_CONF = json.loads(open("/etc/hgbdd.conf","r").read())
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.FileHandler(HGBD_CONF["log_file"])
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+for module in HGBD_CONF["modules"]:
+    exec(open(HGBD_CONF["modules"][module],"r").read())
+    logger.info("load module: " + module)
+
+try:
+    HGBD = os.open(HGBD_CONF["blk_dev"],os.O_RDWR)
+except Exception as e:
+    logger.error(e)
+    sys.exit()
+
+logger.info("hgbdd started")
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind((HGBD_CONF["tcp_addr"],HGBD_CONF["tcp_port"]))
+except Exception as e:
+    logger.error(e)
+    sys.exit()
+s.listen(0) 
+
+while 1:
+    conn, addr = s.accept()
+    while 1:
+        try:
+            data = ord(conn.recv(1024)[0:1])
+            builtin(data)
+            for m in HGBD_CONF["modules"]:
+                globals()[m](data)
+
+        except Exception as e:
+            logger.error(e)
+            break
+    conn.close()
+
+logger.info("hgbdd exited")
+sys.exit()

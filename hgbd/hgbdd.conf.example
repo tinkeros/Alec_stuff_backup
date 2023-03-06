@@ -1,0 +1,10 @@
+{
+    "blk_dev":"/dev/ram0",
+    "hgfs_path":"/home/username/TempleOS",
+    "screenshot_path":"/home/username/TempleOS/Screenshots",
+    "log_file":"/var/log/hgbdd.log",
+    "tcp_addr":"127.0.0.1",
+    "tcp_port":7202,
+    "user":"username",
+    "modules":{}
+}

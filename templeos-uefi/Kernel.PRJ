@@ -1,0 +1,105 @@
+//Compile this by calling $LK,"BootHDIns",A="MN:BootHDIns"$().
+//Don't do it directly.See $LK,"Cmp(\"/Kernel/Kernel\")",A="FF:::/Adam/Opt/Boot/BootHDIns.HC,Cmp(\"/Kernel/Kernel\""$.
+
+#exe {
+  Cd("::/Kernel");;
+  Option(OPTf_WARN_PAREN,ON);
+  Option(OPTf_WARN_DUP_TYPES,ON);
+  Option(OPTf_WARN_UNUSED_VAR,OFF);
+  #include "KCfg"
+  CKCfg *kernel_cfg;
+  kernel_cfg=KCfgNew;
+};
+
+#include "KernelA.HH"
+#include "Patch/KStart16"
+#include "Patch/KStart32"
+#include "Patch/KStart64"
+#include "KMathA"
+#include "Patch/KUtils"
+#exe {Option(OPTf_KEEP_PRIVATE,ON);};
+#include "/Compiler/CompilerA.HH"
+#exe {Option(OPTf_EXTERNS_TO_IMPORTS,ON);};
+#include "/Compiler/CompilerB.HH"
+#exe {Option(OPTf_EXTERNS_TO_IMPORTS,OFF);};
+#exe {Option(OPTf_KEEP_PRIVATE,OFF);};
+#include "Patch/KernelB.HH"
+#include "KExts"
+#include "StrA"
+#include "KGlbls"
+#include "KMathB"
+#include "Sched"
+#include "Patch/Mem/MakeMem"
+#include "FontStd"
+#include "FontCyrillic"
+#include "StrB"
+#include "KHashA"
+#include "KInts"
+#include "KDataTypes"
+#include "Compress"
+#include "KHashB"
+#include "Patch/UEFIGop"
+#include "KLoad"
+#include "KDate"
+#include "StrPrint"
+#include "StrScan"
+#include "KDefine"
+#include "Display"
+#include "KMisc"
+#include "KDbg"
+#include "Patch/KeyDev"
+#include "KExcept"
+#include "SerialDev/MakeSerialDev"
+#include "QSort"
+#include "KTask"
+#include "Job"
+#include "PCIBIOS"
+#include "MultiProc"
+#include "EdLite"
+#include "BlkDev/MakeBlkDev"
+#include "FunSeg"
+
+#include "/Compiler/CompilerA.HH"
+#include "/Compiler/Templates"
+#include "/Compiler/CExts"
+CCmpGlbls	cmp;
+#include "/Compiler/CInit"
+#include "/Compiler/CExcept"
+#include "/Compiler/LexLib"
+#include "/Compiler/Lex"
+CUAsmGlbls	uasm;
+#include "/Compiler/CHash"
+#include "/Compiler/UAsm"
+#include "/Compiler/PrsLib"
+#include "/Compiler/AsmInit"
+#include "/Compiler/AsmLib"
+#include "/Compiler/AsmResolve"
+#include "/Compiler/Asm"
+#include "/Compiler/OptLib"
+
+public _extern _HASH_ADD_AFTER U0 HashAddAfter(CHash *tmph,
+	CHash *pred,CHashTable *table); //Add hash entry after entry.
+
+#include "/Compiler/PrsExp"
+#include "/Compiler/PrsVar"
+#include "/Compiler/CMisc"
+
+extern U0 SysSymImportsResolve(U8 *sptr,I64 ld_flags=0);
+
+#include "Patch/Compiler/CMain"
+#include "/Compiler/PrsStmt"
+#include "/Compiler/OptPass012"
+#include "/Compiler/OptPass3"
+#include "/Compiler/OptPass4"
+#include "/Compiler/OptPass5"
+#include "/Compiler/OptPass6"
+#include "/Compiler/BackLib"
+#include "/Compiler/BackFA"
+#include "/Compiler/BackFB"
+#include "/Compiler/BackA"
+#include "/Compiler/BackB"
+#include "/Compiler/BackC"
+#include "/Compiler/OptPass789A"
+
+#include "Patch/KMain"
+#exe {KCfgDel(kernel_cfg);};

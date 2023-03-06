@@ -1,0 +1,76 @@
+#!/usr/bin/python
+
+import datetime
+import os
+import sys
+
+def get_u32(buf, ofs):
+  base = int(ofs)
+  pos = int(ofs)
+  val = 0
+  while pos < (base + 4):
+    val += (ord(buf[pos:pos+1])) * (256**(pos-base))
+    pos += 1
+  return val
+
+bin_file = sys.argv[1]
+
+print "patchtool            - TempleOS Patch Table Utility for AOT Compiled BIN Module"
+print "                       v0.30 by Alec Murphy (tsheikhs) - 2017 Jul 21"
+print ""
+
+print "Using BIN File       : " + str(bin_file)
+buf = open(bin_file, "rb").read()
+print "                       " + str(len(buf)) + " bytes"
+print ""
+
+patch_table_ofs = get_u32(buf, 0x10)
+print "Patch Table @ Offset : " + str(patch_table_ofs)
+print "Signature            : ",
+
+if ord(buf[patch_table_ofs:patch_table_ofs+1]) == 0x14:
+  print "OK"
+else:
+  print "ERROR"
+  sys.exit()
+
+print ""
+
+addr_entry_count = get_u32(buf, patch_table_ofs+1)
+print "Patch Table Entries  : " + str(addr_entry_count)
+
+log_file = open(bin_file + ".patchlog","wb")
+log_file.write(str(datetime.datetime.now()) + "\n")
+
+file = open(bin_file, "r+b")
+
+entries_ptr = patch_table_ofs+6 
+entries_cnt = 0
+while entries_cnt < addr_entry_count:
+
+  img_entry_ptr = get_u32(buf, entries_ptr) + 0x20
+  new_addr = get_u32(buf, img_entry_ptr) + 0x20
+
+  log_file.write("{0:#0{1}x}".format(img_entry_ptr,10) + ": " + buf[new_addr:buf.find('\x00',new_addr)] + "\n") 
+
+  new_addr += 0x7C00
+  file.seek(img_entry_ptr)
+  file.write(chr((new_addr>>0) & 0xFF))
+  file.write(chr((new_addr>>8) & 0xFF))
+  file.write(chr((new_addr>>16) & 0xFF))
+  file.write(chr((new_addr>>24) & 0xFF))
+  
+  ## actual value to write to location at img_entry_ptr should be: + 0x7C20
+
+  entries_ptr += 4
+  entries_cnt += 1
+
+file.close()
+
+log_file.write(str(datetime.datetime.now()) + "\n")
+log_file.close()
+
+print "Operations written to " + bin_file + ".patchlog"
+print ""
+sys.exit()
+

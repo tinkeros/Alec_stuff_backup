@@ -1,0 +1,33 @@
+## @file
+#  TempleOS UEFI Boot Loader
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010006
+  BASE_NAME                      = TOSBoot
+  FILE_GUID                      = be46d820-47d6-4f6c-bd6c-c99dc716581b
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = ShellCEntryLib
+
+#
+#  VALID_ARCHITECTURES           = X64
+#
+
+[Sources]
+  Main.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+
+[LibraryClasses]
+  UefiLib
+  ShellCEntryLib
+  ShellLib
+  StdLib
+  MemoryAllocationLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiLoadFileProtocolGuid
